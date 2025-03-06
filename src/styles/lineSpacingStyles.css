@@ -26,4 +26,18 @@
 [data-content-area="true"] ol {
   margin-top: 0;
   margin-bottom: 0;
+}
+
+/* Add this to support the line spacing feature */
+[data-line-spacing] {
+  line-height: attr(data-line-spacing);
+}
+
+/* Hide the temporary marker element */
+.line-spacing-marker {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+  position: absolute !important;
+  pointer-events: none !important;
 } 
