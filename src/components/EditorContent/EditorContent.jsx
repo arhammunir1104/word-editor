@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import ZoomControl from '../ZoomControl/ZoomControl';
 import DebugSelection from "../DebugSelection";
 import { useComments } from '../../context/CommentContext';
+import { Ruler, RulerProvider } from '../Ruler';
 
 // A4 dimensions in pixels (96 DPI)
 const INCH_TO_PX = 96;
@@ -424,117 +425,120 @@ const EditorContent = () => {
   }, []);
 
   return (
-    <div className="min-h-screen bg-[#E5E5E5] p-8">
-      <div className="flex flex-col items-center gap-10">
-        {pages.map(pageNumber => (
-          <div
-            key={pageNumber}
-            data-page={pageNumber}
-            className="bg-white shadow-[0_2px_8px_rgba(0,0,0,0.15)] rounded-sm transition-shadow hover:shadow-[0_4px_12px_rgba(0,0,0,0.2)]"
-            style={{
-              width: getZoomedSize(PAGE_WIDTH),
-              height: getZoomedSize(PAGE_HEIGHT),
-              position: 'relative',
-              backgroundColor: 'white',
-              margin: '10px',
-            }}
-          >
-            {/* Header Area */}
+    <RulerProvider>
+      <div className="min-h-screen bg-[#E5E5E5] p-8">
+        <div className="flex flex-col items-center gap-2">
+          <Ruler />
+          {pages.map(pageNumber => (
             <div
-              ref={el => headerRefs.current[pageNumber] = el}
-              contentEditable
-              suppressContentEditableWarning
-              className="absolute outline-none px-2"
-              style={{
-                top: getZoomedSize(margins.top * 0.25),
-                left: getZoomedSize(margins.left),
-                right: getZoomedSize(margins.right),
-                height: getZoomedSize(margins.top * 0.5),
-                minHeight: '1em',
-                backgroundColor: 'white',
-                zIndex: 2,
-                direction: 'ltr',
-                unicodeBidi: 'plaintext'
-              }}
-              onInput={(e) => handleHeaderChange(e, pageNumber)}
-              dir="ltr"
-            >
-              {headers[pageNumber]}
-            </div>
-
-            {/* Content Area */}
-            <div
-              ref={el => contentRefs.current[pageNumber] = el}
-              contentEditable
-              suppressContentEditableWarning
-              className="absolute outline-none px-2"
-              data-content-area="true"
+              key={pageNumber}
               data-page={pageNumber}
+              className="bg-white shadow-[0_2px_8px_rgba(0,0,0,0.15)] rounded-sm transition-shadow hover:shadow-[0_4px_12px_rgba(0,0,0,0.2)]"
               style={{
-                top: getZoomedSize(margins.top * 0.75),
-                left: getZoomedSize(margins.left),
-                right: getZoomedSize(margins.right),
-                bottom: getZoomedSize(margins.bottom * 0.75),
-                overflowY: 'hidden',
-                wordWrap: 'break-word',
+                width: getZoomedSize(PAGE_WIDTH),
+                height: getZoomedSize(PAGE_HEIGHT),
+                position: 'relative',
                 backgroundColor: 'white',
-                zIndex: 1,
-                direction: 'ltr',
-                unicodeBidi: 'plaintext',
-                textAlign: 'left'
+                margin: '10px',
               }}
-              onInput={(e) => handleContentChange(e, pageNumber)}
-              onKeyDown={(e) => handleSpecialKeys(e, pageNumber)}
-              dir="ltr"
             >
-              {pageContents[pageNumber]}
-            </div>
-
-            {/* Footer Area */}
-            <div
-              ref={el => footerRefs.current[pageNumber] = el}
-              contentEditable
-              suppressContentEditableWarning
-              className="absolute outline-none px-2"
-              style={{
-                bottom: getZoomedSize(margins.bottom * 0.25),
-                left: getZoomedSize(margins.left),
-                right: getZoomedSize(margins.right),
-                height: getZoomedSize(margins.bottom * 0.5),
-                minHeight: '1em',
-                backgroundColor: 'white',
-                zIndex: 2,
-                direction: 'ltr',
-                unicodeBidi: 'plaintext'
-              }}
-              onInput={(e) => handleFooterChange(e, pageNumber)}
-              dir="ltr"
-            >
-              <div className="flex justify-between items-center h-full">
-                <div>{footers[pageNumber]}</div>
-                <div className="text-gray-500 text-sm">
-                  Page {pageNumber} of {pages.length}
-                </div>
-              </div>
-            </div>
-
-            {/* Margin Guidelines */}
-            <div className="absolute inset-0 pointer-events-none">
-              <div 
-                className="absolute border border-dashed border-gray-200"
+              {/* Header Area */}
+              <div
+                ref={el => headerRefs.current[pageNumber] = el}
+                contentEditable
+                suppressContentEditableWarning
+                className="absolute outline-none px-2"
                 style={{
-                  top: getZoomedSize(margins.top),
+                  top: getZoomedSize(margins.top * 0.25),
                   left: getZoomedSize(margins.left),
                   right: getZoomedSize(margins.right),
-                  bottom: getZoomedSize(margins.bottom),
+                  height: getZoomedSize(margins.top * 0.5),
+                  minHeight: '1em',
+                  backgroundColor: 'white',
+                  zIndex: 2,
+                  direction: 'ltr',
+                  unicodeBidi: 'plaintext'
                 }}
-              />
+                onInput={(e) => handleHeaderChange(e, pageNumber)}
+                dir="ltr"
+              >
+                {headers[pageNumber]}
+              </div>
+
+              {/* Content Area */}
+              <div
+                ref={el => contentRefs.current[pageNumber] = el}
+                contentEditable
+                suppressContentEditableWarning
+                className="absolute outline-none px-2"
+                data-content-area="true"
+                data-page={pageNumber}
+                style={{
+                  top: getZoomedSize(margins.top * 0.75),
+                  left: getZoomedSize(margins.left),
+                  right: getZoomedSize(margins.right),
+                  bottom: getZoomedSize(margins.bottom * 0.75),
+                  overflowY: 'hidden',
+                  wordWrap: 'break-word',
+                  backgroundColor: 'white',
+                  zIndex: 1,
+                  direction: 'ltr',
+                  unicodeBidi: 'plaintext',
+                  textAlign: 'left'
+                }}
+                onInput={(e) => handleContentChange(e, pageNumber)}
+                onKeyDown={(e) => handleSpecialKeys(e, pageNumber)}
+                dir="ltr"
+              >
+                {pageContents[pageNumber]}
+              </div>
+
+              {/* Footer Area */}
+              <div
+                ref={el => footerRefs.current[pageNumber] = el}
+                contentEditable
+                suppressContentEditableWarning
+                className="absolute outline-none px-2"
+                style={{
+                  bottom: getZoomedSize(margins.bottom * 0.25),
+                  left: getZoomedSize(margins.left),
+                  right: getZoomedSize(margins.right),
+                  height: getZoomedSize(margins.bottom * 0.5),
+                  minHeight: '1em',
+                  backgroundColor: 'white',
+                  zIndex: 2,
+                  direction: 'ltr',
+                  unicodeBidi: 'plaintext'
+                }}
+                onInput={(e) => handleFooterChange(e, pageNumber)}
+                dir="ltr"
+              >
+                <div className="flex justify-between items-center h-full">
+                  <div>{footers[pageNumber]}</div>
+                  <div className="text-gray-500 text-sm">
+                    Page {pageNumber} of {pages.length}
+                  </div>
+                </div>
+              </div>
+
+              {/* Margin Guidelines */}
+              <div className="absolute inset-0 pointer-events-none">
+                <div 
+                  className="absolute border border-dashed border-gray-200"
+                  style={{
+                    top: getZoomedSize(margins.top),
+                    left: getZoomedSize(margins.left),
+                    right: getZoomedSize(margins.right),
+                    bottom: getZoomedSize(margins.bottom),
+                  }}
+                />
+              </div>
             </div>
-          </div>
-        ))}
+          ))}
+        </div>
+        <ZoomControl zoom={zoom} onZoomChange={setZoom} />
       </div>
-      <ZoomControl zoom={zoom} onZoomChange={setZoom} />
-    </div>
+    </RulerProvider>
   );
 };
 

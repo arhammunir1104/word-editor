@@ -1,0 +1,220 @@
+/* Ruler Container */
+.ruler-container {
+  position: relative;
+  height: 20px;
+  background-color: #f1f3f4;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  z-index: 100;
+  margin-bottom: 4px;
+  user-select: none;
+  /* Center alignment */
+  display: block;
+  margin-left: auto !important;
+  margin-right: auto !important;
+}
+
+/* Ruler Canvas */
+.ruler-canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+}
+
+/* Margin Markers - thin blue lines */
+.margin-marker {
+  position: absolute;
+  width: 1px;
+  top: 0;
+  pointer-events: none;
+}
+
+/* Ruler Markers */
+.ruler-marker {
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  z-index: 110;
+  cursor: col-resize;
+  pointer-events: none;
+}
+
+/* Left indent marker (bottom triangle) */
+.left-indent:before {
+  content: '';
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 0;
+  height: 0;
+  border-left: 5px solid transparent;
+  border-right: 5px solid transparent;
+  border-bottom: 5px solid #1a73e8;
+}
+
+/* First line indent marker (top triangle) */
+.first-line-indent:before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 0;
+  height: 0;
+  border-left: 5px solid transparent;
+  border-right: 5px solid transparent;
+  border-top: 5px solid #1a73e8;
+}
+
+/* Right indent marker */
+.right-indent:before {
+  content: '';
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 0;
+  height: 0;
+  border-left: 5px solid transparent;
+  border-right: 5px solid transparent;
+  border-bottom: 5px solid #1a73e8;
+}
+
+/* Tab marker */
+.ruler-tab-marker {
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  bottom: 0;
+  z-index: 105;
+  cursor: pointer;
+}
+
+.ruler-tab-marker:before {
+  content: '';
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 0;
+  height: 0;
+  border-left: 5px solid transparent;
+  border-right: 5px solid transparent;
+  border-bottom: 5px solid #757575;
+}
+
+.ruler-tab-marker:hover:before {
+  border-bottom-color: #1a73e8;
+}
+
+/* Styling for paragraphs to handle indentation */
+[data-content-area="true"] p, 
+[data-content-area="true"] div:not([data-content-area]) {
+  transition: margin-left 0.1s, margin-right 0.1s, text-indent 0.1s;
+}
+
+/* Indented paragraphs styling */
+[data-content-area="true"] p, 
+[data-content-area="true"] div {
+  margin-left: attr(data-left-indent px, 0px);
+  text-indent: attr(data-first-line-indent px, 0px);
+  margin-right: attr(data-right-indent px, 0px);
+}
+
+/* Indent Markers */
+.indent-marker {
+  position: absolute;
+  cursor: col-resize;
+  width: 12px;
+  height: 15px;
+  z-index: 20;
+}
+
+/* Left indent marker */
+.left-indent {
+  bottom: -15px;
+}
+
+.left-indent::after {
+  content: '';
+  position: absolute;
+  left: 5.5px;
+  bottom: 6px;
+  width: 1px;
+  height: 9px;
+  background-color: #1a73e8;
+}
+
+/* First line indent marker */
+.first-line-indent {
+  top: -15px;
+}
+
+.first-line-indent::after {
+  content: '';
+  position: absolute;
+  left: 5.5px;
+  top: 6px;
+  width: 1px;
+  height: 9px;
+  background-color: #1a73e8;
+}
+
+/* Right indent marker */
+.right-indent {
+  bottom: -15px;
+}
+
+.right-indent::after {
+  content: '';
+  position: absolute;
+  right: 5.5px;
+  bottom: 6px;
+  width: 1px;
+  height: 9px;
+  background-color: #1a73e8;
+}
+
+/* Tab marker */
+.tab-marker {
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  bottom: -5px;
+  cursor: pointer;
+  z-index: 15;
+}
+
+.tab-marker::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 0;
+  height: 0;
+  border-left: 5px solid transparent;
+  border-right: 5px solid transparent;
+  border-bottom: 5px solid #757575;
+}
+
+.tab-marker:hover::before {
+  border-bottom-color: #1a73e8;
+}
+
+/* Add hover effect for indent markers */
+.indent-marker:hover::before,
+.indent-marker:hover::after {
+  background-color: #1a73e8;
+  opacity: 0.8;
+}
+
+/* Margin indicators */
+.margin-indicator {
+  position: absolute;
+  top: 0;
+  height: 20px;
+  background-color: rgba(26, 115, 232, 0.1);
+  pointer-events: none;
+}
+
+/* Tab stops styling for content area */
+[data-content-area="true"] {
+  tab-size: var(--tab-stops, 8);
+} 
