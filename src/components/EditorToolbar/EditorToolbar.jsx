@@ -66,6 +66,10 @@ const EditorToolbar = () => {
   const [selectedTextForLink, setSelectedTextForLink] = useState('');
   const [selectedRangeForLink, setSelectedRangeForLink] = useState(null);
   const tooltipRootRef = useRef(null);
+  const [pageOrientations, setPageOrientations] = useState({1: 'portrait'});
+  const [pageSizes, setPageSizes] = useState({1: 'LETTER'});
+  const [customPageSizes, setCustomPageSizes] = useState({1: {width: 8.5 * 96, height: 11 * 96}});
+  const [currentPage, setCurrentPage] = useState(1);
 
   // MS Word standard font sizes in points (pt)
   const fontSizeOptions = [8, 9, 10, 11, 12, 14, 16, 18, 20, 22, 24, 26, 28, 36, 48, 72, 96].map(size => ({
@@ -1443,6 +1447,45 @@ const EditorToolbar = () => {
     
     // Add mouse down listener for dragging
     container.addEventListener('mousedown', handleMouseDown);
+  };
+
+  const handleOrientationChange = (pageNumber, orientation) => {
+    // Update local state
+    setPageOrientations(prev => ({
+      ...prev,
+      [pageNumber]: orientation
+    }));
+    
+    // Dispatch event to notify EditorContent
+    document.dispatchEvent(new CustomEvent('orientationchange', {
+      detail: { pageNumber, orientation }
+    }));
+  };
+
+  const handlePageSizeChange = (pageNumber, pageSize) => {
+    // Update local state
+    setPageSizes(prev => ({
+      ...prev,
+      [pageNumber]: pageSize
+    }));
+    
+    // Dispatch event to notify EditorContent
+    document.dispatchEvent(new CustomEvent('pagesizechange', {
+      detail: { pageNumber, pageSize }
+    }));
+  };
+
+  const handleCustomSizeChange = (pageNumber, width, height) => {
+    // Update local state
+    setCustomPageSizes(prev => ({
+      ...prev,
+      [pageNumber]: { width, height }
+    }));
+    
+    // Dispatch event to notify EditorContent
+    document.dispatchEvent(new CustomEvent('customsizechange', {
+      detail: { pageNumber, width, height }
+    }));
   };
 
   return (

@@ -3,11 +3,46 @@ import ZoomControl from '../ZoomControl/ZoomControl';
 import DebugSelection from "../DebugSelection";
 import { useComments } from '../../context/CommentContext';
 import { useEditorHistory } from '../../context/EditorHistoryContext';
+import { IconButton, Menu, MenuItem, Dialog, DialogTitle, DialogContent, DialogActions, Button, TextField, Select, FormControl, InputLabel, Typography, Box, Grid, Divider, Tooltip } from '@mui/material';
+import { ScreenRotation, FormatSize, ArrowDropDown, Settings } from '@mui/icons-material';
 
 // A4 dimensions in pixels (96 DPI)
 const INCH_TO_PX = 96;
-const PAGE_WIDTH = 8.27 * INCH_TO_PX;  // 793.92px
-const PAGE_HEIGHT = 11.69 * INCH_TO_PX; // 1122.24px
+const CM_TO_PX = 37.8;
+const MM_TO_PX = 3.78;
+
+// Standard page sizes in inches
+const PAGE_SIZES = {
+  LETTER: {
+    name: 'Letter',
+    width: 8.5 * INCH_TO_PX,
+    height: 11 * INCH_TO_PX,
+  },
+  A4: {
+    name: 'A4',
+    width: 8.27 * INCH_TO_PX,
+    height: 11.69 * INCH_TO_PX,
+  },
+  LEGAL: {
+    name: 'Legal',
+    width: 8.5 * INCH_TO_PX,
+    height: 14 * INCH_TO_PX,
+  },
+  TABLOID: {
+    name: 'Tabloid',
+    width: 11 * INCH_TO_PX,
+    height: 17 * INCH_TO_PX,
+  },
+  CUSTOM: {
+    name: 'Custom',
+    width: 8.5 * INCH_TO_PX,
+    height: 11 * INCH_TO_PX,
+  }
+};
+
+// Replace the current PAGE_WIDTH and PAGE_HEIGHT constants with default values
+const DEFAULT_PAGE_SIZE = PAGE_SIZES.LETTER;
+const DEFAULT_ORIENTATION = 'portrait';
 
 // Predefined margin presets (in pixels)
 const MARGIN_PRESETS = {
@@ -45,6 +80,21 @@ const EditorContent = () => {
   const [headers, setHeaders] = useState({1: ''});
   const [footers, setFooters] = useState({1: ''});
   
+  // Add new state for page orientation and dimensions
+  const [pageOrientations, setPageOrientations] = useState({1: DEFAULT_ORIENTATION});
+  const [pageSizes, setPageSizes] = useState({1: DEFAULT_PAGE_SIZE.name});
+  const [customPageSizes, setCustomPageSizes] = useState({1: {width: DEFAULT_PAGE_SIZE.width, height: DEFAULT_PAGE_SIZE.height}});
+  
+  // Page settings dialog state
+  const [pageSettingsAnchorEl, setPageSettingsAnchorEl] = useState(null);
+  const [pageSettingsDialogOpen, setPageSettingsDialogOpen] = useState(false);
+  const [selectedPage, setSelectedPage] = useState(1);
+  const [tempPageSize, setTempPageSize] = useState(DEFAULT_PAGE_SIZE.name);
+  const [tempOrientation, setTempOrientation] = useState(DEFAULT_ORIENTATION);
+  const [tempCustomWidth, setTempCustomWidth] = useState(DEFAULT_PAGE_SIZE.width / INCH_TO_PX);
+  const [tempCustomHeight, setTempCustomHeight] = useState(DEFAULT_PAGE_SIZE.height / INCH_TO_PX);
+  const [tempUnit, setTempUnit] = useState('in');
+  
   const contentRefs = useRef({});
   const headerRefs = useRef({});
   const footerRefs = useRef({});
@@ -53,6 +103,33 @@ const EditorContent = () => {
   const { saveSelectionRange } = useComments();
   const { saveHistory, ActionTypes } = useEditorHistory();
 
+  // Function to get the actual page dimensions based on orientation and size
+  const getPageDimensions = (pageNumber) => {
+    const orientation = pageOrientations[pageNumber] || DEFAULT_ORIENTATION;
+    const pageSize = pageSizes[pageNumber] || DEFAULT_PAGE_SIZE.name;
+    let width, height;
+    
+    if (pageSize === 'CUSTOM') {
+      const customSize = customPageSizes[pageNumber] || {
+        width: DEFAULT_PAGE_SIZE.width,
+        height: DEFAULT_PAGE_SIZE.height
+      };
+      width = customSize.width;
+      height = customSize.height;
+    } else {
+      const dimensions = PAGE_SIZES[pageSize] || DEFAULT_PAGE_SIZE;
+      width = dimensions.width;
+      height = dimensions.height;
+    }
+    
+    // Swap width and height for landscape orientation
+    if (orientation === 'landscape') {
+      return { width: height, height: width };
+    }
+    
+    return { width, height };
+  };
+
   const getZoomedSize = (size) => `${size * (zoom / 100)}px`;
 
   // Handle content changes and pagination
@@ -60,12 +137,14 @@ const EditorContent = () => {
     const currentRef = contentRefs.current[pageNumber];
     if (!currentRef) return;
 
-    const maxHeight = (PAGE_HEIGHT - margins.top - margins.bottom) * (zoom / 100);
+    // Get dimensions for this specific page
+    const { width, height } = getPageDimensions(pageNumber);
+    const maxHeight = (height - margins.top - margins.bottom) * (zoom / 100);
     
     // Create temp div for accurate measurement
     const temp = document.createElement('div');
     temp.style.cssText = window.getComputedStyle(currentRef).cssText;
-    temp.style.width = `${currentRef.offsetWidth}px`;
+    temp.style.width = `${(width - margins.left - margins.right) * (zoom / 100)}px`;
     temp.style.height = 'auto';
     temp.style.position = 'absolute';
     temp.style.visibility = 'hidden';
@@ -103,9 +182,30 @@ const EditorContent = () => {
 
       // Handle next page
       if (secondPart.trim()) {
-        // Add new page
+        // Add new page - make sure to inherit page settings
         if (!pages.includes(pageNumber + 1)) {
           setPages(prev => [...prev, pageNumber + 1]);
+          
+          // Copy current page's orientation and size to the new page
+          setPageOrientations(prev => ({
+            ...prev,
+            [pageNumber + 1]: pageOrientations[pageNumber] || DEFAULT_ORIENTATION
+          }));
+          
+          setPageSizes(prev => ({
+            ...prev,
+            [pageNumber + 1]: pageSizes[pageNumber] || DEFAULT_PAGE_SIZE.name
+          }));
+          
+          if (pageSizes[pageNumber] === 'CUSTOM') {
+            setCustomPageSizes(prev => ({
+              ...prev,
+              [pageNumber + 1]: customPageSizes[pageNumber] || {
+                width: DEFAULT_PAGE_SIZE.width, 
+                height: DEFAULT_PAGE_SIZE.height
+              }
+            }));
+          }
         }
 
         // Update next page content
@@ -125,8 +225,8 @@ const EditorContent = () => {
     } else {
       document.body.removeChild(temp);
       setPageContents(prev => ({
-        [pageNumber]: e.target.innerHTML,
         ...prev,
+        [pageNumber]: e.target.innerHTML,
       }));
     }
   };
@@ -141,6 +241,9 @@ const EditorContent = () => {
       if (range.startOffset === 0 && pageNumber > 1) {
         e.preventDefault();
         
+        // Save history before merging pages
+        saveHistory(ActionTypes.COMPLETE);
+        
         const currentContent = pageContents[pageNumber] || '';
         const prevContent = pageContents[pageNumber - 1] || '';
         
@@ -151,8 +254,27 @@ const EditorContent = () => {
           [pageNumber]: ''
         }));
         
-        // Remove empty page
+        // Remove empty page and its settings
         setPages(prev => prev.filter(p => p !== pageNumber));
+        
+        // Remove this page's settings
+        setPageOrientations(prev => {
+          const newOrientations = {...prev};
+          delete newOrientations[pageNumber];
+          return newOrientations;
+        });
+        
+        setPageSizes(prev => {
+          const newSizes = {...prev};
+          delete newSizes[pageNumber];
+          return newSizes;
+        });
+        
+        setCustomPageSizes(prev => {
+          const newCustomSizes = {...prev};
+          delete newCustomSizes[pageNumber];
+          return newCustomSizes;
+        });
         
         // Focus previous page
         setTimeout(() => {
@@ -164,6 +286,9 @@ const EditorContent = () => {
             range.collapse(true);
             selection.removeAllRanges();
             selection.addRange(range);
+            
+            // Save history after merge complete
+            saveHistory(ActionTypes.COMPLETE);
           }
         }, 0);
       }
@@ -779,117 +904,561 @@ const EditorContent = () => {
     };
   }, []);
 
+  // Handlers for page settings
+  const handlePageSettingsClick = (e, pageNumber) => {
+    setSelectedPage(pageNumber);
+    setPageSettingsAnchorEl(e.currentTarget);
+    
+    // Initialize temp values based on current page settings
+    const orientation = pageOrientations[pageNumber] || DEFAULT_ORIENTATION;
+    const pageSize = pageSizes[pageNumber] || DEFAULT_PAGE_SIZE.name;
+    setTempOrientation(orientation);
+    setTempPageSize(pageSize);
+    
+    if (pageSize === 'CUSTOM') {
+      const customSize = customPageSizes[pageNumber] || {
+        width: DEFAULT_PAGE_SIZE.width,
+        height: DEFAULT_PAGE_SIZE.height
+      };
+      setTempCustomWidth(customSize.width / INCH_TO_PX);
+      setTempCustomHeight(customSize.height / INCH_TO_PX);
+    } else {
+      const dimensions = PAGE_SIZES[pageSize] || DEFAULT_PAGE_SIZE;
+      setTempCustomWidth(dimensions.width / INCH_TO_PX);
+      setTempCustomHeight(dimensions.height / INCH_TO_PX);
+    }
+  };
+
+  const handlePageSettingsClose = () => {
+    setPageSettingsAnchorEl(null);
+  };
+
+  const handleOpenPageSettingsDialog = () => {
+    setPageSettingsDialogOpen(true);
+    handlePageSettingsClose();
+  };
+
+  const handleClosePageSettingsDialog = (event) => {
+    // Only close if explicitly closed via buttons, not by clicking outside
+    if (event && event.target && event.target.getAttribute('role') === 'presentation') {
+      // Clicked outside, but don't close if we're interacting with inputs
+      const activeElement = document.activeElement;
+      if (activeElement && 
+          (activeElement.tagName === 'INPUT' || 
+           activeElement.tagName === 'SELECT' ||
+           activeElement.tagName === 'BUTTON')) {
+        return;
+      }
+    }
+    
+    setPageSettingsDialogOpen(false);
+  };
+
+  const handleOrientationChange = (newOrientation) => {
+    // Save history before change
+    saveHistory(ActionTypes.COMPLETE);
+    
+    // Update orientation state
+    setPageOrientations(prev => ({
+      ...prev,
+      [selectedPage]: newOrientation
+    }));
+    
+    // Immediately update the page visually
+    setTimeout(() => {
+      const pageElement = document.querySelector(`[data-page="${selectedPage}"]`);
+      if (pageElement) {
+        const currentPageSize = pageSizes[selectedPage] || DEFAULT_PAGE_SIZE.name;
+        let width, height;
+        
+        if (currentPageSize === 'CUSTOM') {
+          const customSize = customPageSizes[selectedPage] || {
+            width: DEFAULT_PAGE_SIZE.width,
+            height: DEFAULT_PAGE_SIZE.height
+          };
+          width = customSize.width;
+          height = customSize.height;
+        } else {
+          const dimensions = PAGE_SIZES[currentPageSize] || DEFAULT_PAGE_SIZE;
+          width = dimensions.width;
+          height = dimensions.height;
+        }
+        
+        // Swap width and height for landscape
+        if (newOrientation === 'landscape') {
+          [width, height] = [height, width];
+        }
+        
+        // Apply dimensions to the page
+        pageElement.style.width = getZoomedSize(width);
+        pageElement.style.height = getZoomedSize(height);
+        
+        // Force layout recalculation
+        void pageElement.offsetHeight;
+        
+        // Update content to fit new dimensions
+        const contentArea = pageElement.querySelector('[data-content-area="true"]');
+        if (contentArea) {
+          contentArea.style.width = getZoomedSize(width - margins.left - margins.right);
+          handleContentChange({ target: contentArea }, selectedPage);
+        }
+      }
+    }, 0);
+    
+    // Save history after change
+    setTimeout(() => {
+      saveHistory(ActionTypes.COMPLETE);
+    }, 100);
+  };
+
+  const handlePageSizeChange = (event) => {
+    const newSize = event.target.value;
+    setTempPageSize(newSize);
+    
+    // Update custom dimensions to match the selected preset
+    if (newSize !== 'CUSTOM') {
+      const dimensions = PAGE_SIZES[newSize] || DEFAULT_PAGE_SIZE;
+      setTempCustomWidth(dimensions.width / INCH_TO_PX);
+      setTempCustomHeight(dimensions.height / INCH_TO_PX);
+    }
+  };
+
+  const handleCustomSizeChange = (dimension, value) => {
+    if (dimension === 'width') {
+      setTempCustomWidth(value);
+    } else {
+      setTempCustomHeight(value);
+    }
+    // If changing custom dimensions, make sure we're set to CUSTOM
+    setTempPageSize('CUSTOM');
+  };
+
+  const handleUnitChange = (event) => {
+    const newUnit = event.target.value;
+    const oldUnit = tempUnit;
+    let conversionFactor = 1;
+    
+    // Convert dimensions based on unit change
+    if (oldUnit === 'in' && newUnit === 'cm') {
+      conversionFactor = 2.54;
+    } else if (oldUnit === 'in' && newUnit === 'mm') {
+      conversionFactor = 25.4;
+    } else if (oldUnit === 'cm' && newUnit === 'in') {
+      conversionFactor = 1/2.54;
+    } else if (oldUnit === 'cm' && newUnit === 'mm') {
+      conversionFactor = 10;
+    } else if (oldUnit === 'mm' && newUnit === 'in') {
+      conversionFactor = 1/25.4;
+    } else if (oldUnit === 'mm' && newUnit === 'cm') {
+      conversionFactor = 0.1;
+    }
+    
+    setTempCustomWidth(prev => prev * conversionFactor);
+    setTempCustomHeight(prev => prev * conversionFactor);
+    setTempUnit(newUnit);
+  };
+
+  const applyPageSettings = () => {
+    // Save history before changes
+    saveHistory(ActionTypes.COMPLETE);
+    
+    // Calculate dimensions in pixels
+    let widthInPx = tempCustomWidth;
+    let heightInPx = tempCustomHeight;
+    
+    if (tempUnit === 'in') {
+      widthInPx *= INCH_TO_PX;
+      heightInPx *= INCH_TO_PX;
+    } else if (tempUnit === 'cm') {
+      widthInPx *= CM_TO_PX;
+      heightInPx *= CM_TO_PX;
+    } else if (tempUnit === 'mm') {
+      widthInPx *= MM_TO_PX;
+      heightInPx *= MM_TO_PX;
+    }
+    
+    // Update orientation
+    setPageOrientations(prev => ({
+      ...prev,
+      [selectedPage]: tempOrientation
+    }));
+    
+    // Update page size
+    setPageSizes(prev => ({
+      ...prev,
+      [selectedPage]: tempPageSize
+    }));
+    
+    // Update custom dimensions if needed
+    if (tempPageSize === 'CUSTOM') {
+      setCustomPageSizes(prev => ({
+        ...prev,
+        [selectedPage]: { width: widthInPx, height: heightInPx }
+      }));
+    }
+    
+    // Force immediate re-render of the affected page
+    setTimeout(() => {
+      const pageElement = document.querySelector(`[data-page="${selectedPage}"]`);
+      if (pageElement) {
+        // Force a layout recalculation
+        void pageElement.offsetHeight;
+        
+        // Update the page dimensions
+        let { width, height } = tempOrientation === 'landscape' && tempPageSize !== 'CUSTOM' 
+          ? { width: heightInPx, height: widthInPx }
+          : { width: widthInPx, height: heightInPx };
+          
+        pageElement.style.width = getZoomedSize(width);
+        pageElement.style.height = getZoomedSize(height);
+        
+        // Also update content area to match new dimensions
+        const contentArea = pageElement.querySelector('[data-content-area="true"]');
+        if (contentArea) {
+          // Adjust content area based on new dimensions
+          contentArea.style.width = getZoomedSize(width - margins.left - margins.right);
+          handleContentChange({ target: contentArea }, selectedPage);
+        }
+      }
+    }, 0);
+    
+    // Close dialog
+    setPageSettingsDialogOpen(false);
+    
+    // Save history after changes
+    setTimeout(() => {
+      saveHistory(ActionTypes.COMPLETE);
+    }, 100); // Slight delay to make sure all DOM changes are complete
+  };
+
+  // Add page settings button to the page component
+  const PageSettingsButton = ({ pageNumber }) => {
+    return (
+      <Tooltip title="Page setup">
+        <IconButton
+          size="small"
+          onClick={(e) => handlePageSettingsClick(e, pageNumber)}
+          sx={{
+            position: 'absolute',
+            top: '8px',
+            right: '8px',
+            backgroundColor: 'rgba(255, 255, 255, 0.8)',
+            border: '1px solid #e0e0e0',
+            boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
+            zIndex: 5,
+            padding: '4px',
+            '&:hover': {
+              backgroundColor: 'rgba(255, 255, 255, 1)',
+            }
+          }}
+        >
+          <Settings sx={{ fontSize: '16px' }} />
+        </IconButton>
+      </Tooltip>
+    );
+  };
+
+  // Add these components to the JSX returned by EditorContent
+  const PageSettingsMenu = () => (
+    <>
+      <Menu
+        anchorEl={pageSettingsAnchorEl}
+        open={Boolean(pageSettingsAnchorEl)}
+        onClose={handlePageSettingsClose}
+      >
+        <MenuItem onClick={() => handleOrientationChange('portrait')}>
+          Portrait Orientation
+        </MenuItem>
+        <MenuItem onClick={() => handleOrientationChange('landscape')}>
+          Landscape Orientation
+        </MenuItem>
+        <Divider />
+        <MenuItem onClick={handleOpenPageSettingsDialog}>
+          Page Setup...
+        </MenuItem>
+      </Menu>
+      
+      <Dialog
+        open={pageSettingsDialogOpen}
+        onClose={handleClosePageSettingsDialog}
+        maxWidth="sm"
+        fullWidth
+        onClick={(e) => e.stopPropagation()}
+      >
+        <DialogTitle>Page Setup</DialogTitle>
+        <DialogContent>
+          <Box sx={{ my: 2 }}>
+            <Grid container spacing={2}>
+              <Grid item xs={12}>
+                <Typography variant="subtitle1">Orientation</Typography>
+                <Box sx={{ display: 'flex', mt: 1 }}>
+                  <Button
+                    variant={tempOrientation === 'portrait' ? 'contained' : 'outlined'}
+                    onClick={() => setTempOrientation('portrait')}
+                    sx={{ mr: 1, minWidth: '100px' }}
+                  >
+                    Portrait
+                  </Button>
+                  <Button
+                    variant={tempOrientation === 'landscape' ? 'contained' : 'outlined'}
+                    onClick={() => setTempOrientation('landscape')}
+                    sx={{ minWidth: '100px' }}
+                  >
+                    Landscape
+                  </Button>
+                </Box>
+              </Grid>
+              
+              <Grid item xs={12} sx={{ mt: 2 }}>
+                <Typography variant="subtitle1">Page Size</Typography>
+                <FormControl fullWidth sx={{ mt: 1 }}>
+                  <Select
+                    value={tempPageSize}
+                    onChange={handlePageSizeChange}
+                  >
+                    <MenuItem value="LETTER">Letter (8.5" x 11")</MenuItem>
+                    <MenuItem value="A4">A4 (8.27" x 11.69")</MenuItem>
+                    <MenuItem value="LEGAL">Legal (8.5" x 14")</MenuItem>
+                    <MenuItem value="TABLOID">Tabloid (11" x 17")</MenuItem>
+                    <MenuItem value="CUSTOM">Custom</MenuItem>
+                  </Select>
+                </FormControl>
+              </Grid>
+              
+              {tempPageSize === 'CUSTOM' && (
+                <Grid item xs={12} sx={{ mt: 1 }}>
+                  <Typography variant="subtitle2">Custom Page Size</Typography>
+                  <Box sx={{ display: 'flex', alignItems: 'center', mt: 1 }}>
+                    <TextField
+                      label="Width"
+                      type="number"
+                      value={tempCustomWidth}
+                      onChange={(e) => handleCustomSizeChange('width', parseFloat(e.target.value))}
+                      onClick={(e) => e.stopPropagation()}
+                      onFocus={(e) => e.stopPropagation()}
+                      inputProps={{ step: 0.1, min: 3, max: 48 }}
+                      sx={{ mr: 1, width: '120px' }}
+                    />
+                    <Typography sx={{ mx: 1 }}>×</Typography>
+                    <TextField
+                      label="Height"
+                      type="number"
+                      value={tempCustomHeight}
+                      onChange={(e) => handleCustomSizeChange('height', parseFloat(e.target.value))}
+                      onClick={(e) => e.stopPropagation()}
+                      onFocus={(e) => e.stopPropagation()}
+                      inputProps={{ step: 0.1, min: 3, max: 48 }}
+                      sx={{ mr: 1, width: '120px' }}
+                    />
+                    <FormControl sx={{ width: '80px' }}>
+                      <Select
+                        value={tempUnit}
+                        onChange={handleUnitChange}
+                      >
+                        <MenuItem value="in">in</MenuItem>
+                        <MenuItem value="cm">cm</MenuItem>
+                        <MenuItem value="mm">mm</MenuItem>
+                      </Select>
+                    </FormControl>
+                  </Box>
+                </Grid>
+              )}
+            </Grid>
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleClosePageSettingsDialog}>Cancel</Button>
+          <Button onClick={applyPageSettings} variant="contained">Apply</Button>
+        </DialogActions>
+      </Dialog>
+    </>
+  );
+
+  // Inside the EditorContent component, listen for page settings changes
+  useEffect(() => {
+    const handleOrientationChange = (e) => {
+      if (e.detail) {
+        const { pageNumber, orientation } = e.detail;
+        setPageOrientations(prev => ({
+          ...prev,
+          [pageNumber]: orientation
+        }));
+        
+        // Force content repagination
+        const contentRef = contentRefs.current[pageNumber];
+        if (contentRef) {
+          handleContentChange({ target: contentRef }, pageNumber);
+        }
+      }
+    };
+    
+    const handlePageSizeChange = (e) => {
+      if (e.detail) {
+        const { pageNumber, pageSize } = e.detail;
+        setPageSizes(prev => ({
+          ...prev,
+          [pageNumber]: pageSize
+        }));
+        
+        // Force content repagination
+        const contentRef = contentRefs.current[pageNumber];
+        if (contentRef) {
+          handleContentChange({ target: contentRef }, pageNumber);
+        }
+      }
+    };
+    
+    const handleCustomSizeChange = (e) => {
+      if (e.detail) {
+        const { pageNumber, width, height } = e.detail;
+        setCustomPageSizes(prev => ({
+          ...prev,
+          [pageNumber]: { width, height }
+        }));
+        
+        // Force content repagination
+        const contentRef = contentRefs.current[pageNumber];
+        if (contentRef) {
+          handleContentChange({ target: contentRef }, pageNumber);
+        }
+      }
+    };
+    
+    document.addEventListener('orientationchange', handleOrientationChange);
+    document.addEventListener('pagesizechange', handlePageSizeChange);
+    document.addEventListener('customsizechange', handleCustomSizeChange);
+    
+    return () => {
+      document.removeEventListener('orientationchange', handleOrientationChange);
+      document.removeEventListener('pagesizechange', handlePageSizeChange);
+      document.removeEventListener('customsizechange', handleCustomSizeChange);
+    };
+  }, []);
+
   return (
     <div className="min-h-screen bg-[#E5E5E5] p-8">
       <div className="flex flex-col items-center gap-2">
-        {pages.map(pageNumber => (
-          <div
-            key={pageNumber}
-            data-page={pageNumber}
-            className="bg-white shadow-[0_2px_8px_rgba(0,0,0,0.15)] rounded-sm transition-shadow hover:shadow-[0_4px_12px_rgba(0,0,0,0.2)]"
-            style={{
-              width: getZoomedSize(PAGE_WIDTH),
-              height: getZoomedSize(PAGE_HEIGHT),
-              position: 'relative',
-              backgroundColor: 'white',
-              margin: '10px',
-            }}
-          >
-            {/* Header Area */}
+        {pages.map(pageNumber => {
+          // Get dimensions for this specific page
+          const { width, height } = getPageDimensions(pageNumber);
+          
+          return (
             <div
-              ref={el => headerRefs.current[pageNumber] = el}
-              contentEditable
-              suppressContentEditableWarning
-              className="absolute outline-none px-2"
-              style={{
-                top: getZoomedSize(margins.top * 0.25),
-                left: getZoomedSize(margins.left),
-                right: getZoomedSize(margins.right),
-                height: getZoomedSize(margins.top * 0.5),
-                minHeight: '1em',
-                backgroundColor: 'white',
-                zIndex: 2,
-                direction: 'ltr',
-                unicodeBidi: 'plaintext'
-              }}
-              onInput={(e) => handleHeaderChange(e, pageNumber)}
-              dir="ltr"
-            >
-              {headers[pageNumber]}
-            </div>
-
-            {/* Content Area */}
-            <div
-              ref={el => contentRefs.current[pageNumber] = el}
-              contentEditable
-              suppressContentEditableWarning
-              className="absolute outline-none px-2"
-              data-content-area="true"
+              key={pageNumber}
               data-page={pageNumber}
+              className="bg-white shadow-[0_2px_8px_rgba(0,0,0,0.15)] rounded-sm transition-shadow hover:shadow-[0_4px_12px_rgba(0,0,0,0.2)]"
               style={{
-                top: getZoomedSize(margins.top * 0.75),
-                left: getZoomedSize(margins.left),
-                right: getZoomedSize(margins.right),
-                bottom: getZoomedSize(margins.bottom * 0.75),
-                overflowY: 'hidden',
-                wordWrap: 'break-word',
+                width: getZoomedSize(width),
+                height: getZoomedSize(height),
+                position: 'relative',
                 backgroundColor: 'white',
-                zIndex: 1,
-                direction: 'ltr',
-                unicodeBidi: 'plaintext',
-                textAlign: 'left'
+                margin: '10px',
               }}
-              onInput={(e) => handleContentChange(e, pageNumber)}
-              onKeyDown={(e) => handleSpecialKeys(e, pageNumber)}
-              dir="ltr"
-            >
-              {pageContents[pageNumber]}
-            </div>
-
-            {/* Footer Area */}
-            <div
-              ref={el => footerRefs.current[pageNumber] = el}
-              contentEditable
-              suppressContentEditableWarning
-              className="absolute outline-none px-2"
-              style={{
-                bottom: getZoomedSize(margins.bottom * 0.25),
-                left: getZoomedSize(margins.left),
-                right: getZoomedSize(margins.right),
-                height: getZoomedSize(margins.bottom * 0.5),
-                minHeight: '1em',
-                backgroundColor: 'white',
-                zIndex: 2,
-                direction: 'ltr',
-                unicodeBidi: 'plaintext'
+              onClick={() => {
+                // Set current page when clicked
+                setSelectedPage(pageNumber);
               }}
-              onInput={(e) => handleFooterChange(e, pageNumber)}
-              dir="ltr"
             >
-              <div className="flex justify-between items-center h-full">
-                <div>{footers[pageNumber]}</div>
-                <div className="text-gray-500 text-sm">
-                  Page {pageNumber} of {pages.length}
-                </div>
-              </div>
-            </div>
-
-            {/* Margin Guidelines */}
-            <div className="absolute inset-0 pointer-events-none">
-              <div 
-                className="absolute border border-dashed border-gray-200"
+              {/* Add the Page Settings Button */}
+              <PageSettingsButton pageNumber={pageNumber} />
+              
+              {/* Header Area */}
+              <div
+                ref={el => headerRefs.current[pageNumber] = el}
+                contentEditable
+                suppressContentEditableWarning
+                className="absolute outline-none px-2"
                 style={{
-                  top: getZoomedSize(margins.top),
+                  top: getZoomedSize(margins.top * 0.25),
                   left: getZoomedSize(margins.left),
                   right: getZoomedSize(margins.right),
-                  bottom: getZoomedSize(margins.bottom),
+                  height: getZoomedSize(margins.top * 0.5),
+                  minHeight: '1em',
+                  backgroundColor: 'white',
+                  zIndex: 2,
+                  direction: 'ltr',
+                  unicodeBidi: 'plaintext'
                 }}
-              />
+                onInput={(e) => handleHeaderChange(e, pageNumber)}
+                dir="ltr"
+              >
+                {headers[pageNumber]}
+              </div>
+
+              {/* Content Area */}
+              <div
+                ref={el => contentRefs.current[pageNumber] = el}
+                contentEditable
+                suppressContentEditableWarning
+                className="absolute outline-none px-2"
+                data-content-area="true"
+                data-page={pageNumber}
+                style={{
+                  top: getZoomedSize(margins.top * 0.75),
+                  left: getZoomedSize(margins.left),
+                  right: getZoomedSize(margins.right),
+                  bottom: getZoomedSize(margins.bottom * 0.75),
+                  overflowY: 'hidden',
+                  wordWrap: 'break-word',
+                  backgroundColor: 'white',
+                  zIndex: 1,
+                  direction: 'ltr',
+                  unicodeBidi: 'plaintext',
+                  textAlign: 'left'
+                }}
+                onInput={(e) => handleContentChange(e, pageNumber)}
+                onKeyDown={(e) => handleSpecialKeys(e, pageNumber)}
+                dir="ltr"
+              >
+                {pageContents[pageNumber]}
+              </div>
+
+              {/* Footer Area */}
+              <div
+                ref={el => footerRefs.current[pageNumber] = el}
+                contentEditable
+                suppressContentEditableWarning
+                className="absolute outline-none px-2"
+                style={{
+                  bottom: getZoomedSize(margins.bottom * 0.25),
+                  left: getZoomedSize(margins.left),
+                  right: getZoomedSize(margins.right),
+                  height: getZoomedSize(margins.bottom * 0.5),
+                  minHeight: '1em',
+                  backgroundColor: 'white',
+                  zIndex: 2,
+                  direction: 'ltr',
+                  unicodeBidi: 'plaintext'
+                }}
+                onInput={(e) => handleFooterChange(e, pageNumber)}
+                dir="ltr"
+              >
+                <div className="flex justify-between items-center h-full">
+                  <div>{footers[pageNumber]}</div>
+                  <div className="text-gray-500 text-sm">
+                    Page {pageNumber} of {pages.length}
+                  </div>
+                </div>
+              </div>
+
+              {/* Margin Guidelines */}
+              <div className="absolute inset-0 pointer-events-none">
+                <div 
+                  className="absolute border border-dashed border-gray-200"
+                  style={{
+                    top: getZoomedSize(margins.top),
+                    left: getZoomedSize(margins.left),
+                    right: getZoomedSize(margins.right),
+                    bottom: getZoomedSize(margins.bottom),
+                  }}
+                />
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
       <ZoomControl zoom={zoom} onZoomChange={setZoom} />
+      <PageSettingsMenu />
     </div>
   );
 };
