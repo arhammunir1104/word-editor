@@ -1,0 +1,29 @@
+/* Comment highlight styles */
+.comment-highlight {
+  background-color: #fff9c4;
+  border-radius: 2px;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+.comment-highlight:hover {
+  background-color: #ffe082;
+}
+
+.comment-highlight-flash {
+  animation: flash-highlight 1s;
+}
+
+@keyframes flash-highlight {
+  0%, 100% { background-color: #fff9c4; }
+  50% { background-color: #ffb74d; }
+}
+
+/* For resolved comments */
+.comment-highlight[data-resolved="true"] {
+  background-color: #e0e0e0;
+}
+
+.comment-highlight[data-resolved="true"]:hover {
+  background-color: #bdbdbd;
+} 
