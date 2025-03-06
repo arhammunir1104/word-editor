@@ -8,7 +8,6 @@ const Ruler = () => {
   const rulerRef = useRef(null);
   const containerRef = useRef(null);
   const [rulerWidth, setRulerWidth] = useState(0);
-  const [pageWidth, setPageWidth] = useState(0);
   const [isHoveringMarkers, setIsHoveringMarkers] = useState({
     leftMargin: false,
     rightMargin: false,
@@ -30,10 +29,11 @@ const Ruler = () => {
     addTabStop,
     removeTabStop,
     startDrag,
-    endDrag
+    endDrag,
+    measureExactTextPosition
   } = useRuler();
   
-  // Synchronize ruler with page dimensions
+  // Setup ruler dimensions and alignment with page
   useEffect(() => {
     const updateRulerDimensions = () => {
       // Find the page element
@@ -42,12 +42,25 @@ const Ruler = () => {
       
       // Get actual page width
       const actualPageWidth = pageElement.offsetWidth;
-      setPageWidth(actualPageWidth);
       setRulerWidth(actualPageWidth);
       
-      // Update container width to match
+      // Update container width to match page exactly
       if (containerRef.current) {
         containerRef.current.style.width = `${actualPageWidth}px`;
+        
+        // Critical: Ensure perfect horizontal alignment
+        const contentArea = document.querySelector('[data-content-area="true"]');
+        if (contentArea) {
+          const contentRect = contentArea.getBoundingClientRect();
+          const rulerRect = containerRef.current.getBoundingClientRect();
+          
+          // Check if horizontal alignment needs adjustment
+          const misalignment = contentRect.left - rulerRect.left;
+          if (Math.abs(misalignment) > 1) {
+            console.log(`Fixing ruler alignment. Offset: ${misalignment}px`);
+            containerRef.current.style.transform = `translateX(${misalignment}px)`;
+          }
+        }
       }
     };
     
@@ -57,18 +70,44 @@ const Ruler = () => {
     // Update on window resize
     window.addEventListener('resize', updateRulerDimensions);
     
-    // Monitor page element changes with ResizeObserver
-    const resizeObserver = new ResizeObserver(updateRulerDimensions);
+    // Setup observer for page changes
+    const resizeObserver = new ResizeObserver(() => {
+      updateRulerDimensions();
+      
+      // Re-check text position whenever the page size changes
+      const exactTextPos = measureExactTextPosition();
+      if (exactTextPos !== null && Math.abs(exactTextPos - pageMargins.left) > 2) {
+        // If text position doesn't match ruler, update the ruler
+        console.log("Ruler-Text misalignment detected. Adjusting...");
+        updatePageMargins({ left: exactTextPos });
+      }
+    });
+    
     const pageElement = document.querySelector('[data-page="1"]');
     if (pageElement) {
       resizeObserver.observe(pageElement);
     }
     
+    // Verify alignment after a moment
+    setTimeout(() => {
+      updateRulerDimensions();
+      
+      // Verify text position matches ruler position
+      const textPos = measureExactTextPosition();
+      if (textPos !== null && Math.abs(textPos - pageMargins.left) > 2) {
+        console.log("Initial text-ruler mismatch detected:", { 
+          textStart: textPos, 
+          rulerMargin: pageMargins.left 
+        });
+        updatePageMargins({ left: textPos });
+      }
+    }, 500);
+    
     return () => {
       window.removeEventListener('resize', updateRulerDimensions);
       resizeObserver.disconnect();
     };
-  }, []);
+  }, [pageMargins.left, measureExactTextPosition, updatePageMargins]);
   
   // Draw ruler
   useEffect(() => {
@@ -78,7 +117,7 @@ const Ruler = () => {
     const ctx = canvas.getContext('2d');
     const dpr = window.devicePixelRatio || 1;
     
-    // Set canvas dimensions with high-DPI support
+    // Set canvas dimensions for high-DPI displays
     canvas.width = rulerWidth * dpr;
     canvas.height = RULER_HEIGHT * dpr;
     canvas.style.width = `${rulerWidth}px`;
@@ -92,12 +131,12 @@ const Ruler = () => {
     ctx.fillStyle = '#f1f3f4';
     ctx.fillRect(0, 0, rulerWidth, RULER_HEIGHT);
     
-    // Draw margin areas (white background)
+    // Draw margin areas (white)
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, pageMargins.left, RULER_HEIGHT);
     ctx.fillRect(rulerWidth - pageMargins.right, 0, pageMargins.right, RULER_HEIGHT);
     
-    // Calculate the scale factor (how many pixels per inch)
+    // Calculate scale for inch markers
     const scaleFactor = rulerWidth / PAGE_WIDTH;
     const scaledInch = INCH_TO_PX * scaleFactor;
     
@@ -106,18 +145,18 @@ const Ruler = () => {
     ctx.lineWidth = 1;
     ctx.beginPath();
     
-    // Draw inch marks
+    // Major inch marks
     for (let i = 0; i <= rulerWidth; i += scaledInch) {
       ctx.moveTo(i, 0);
       ctx.lineTo(i, RULER_HEIGHT);
       
-      // Draw inch numbers
+      // Add inch numbers
       ctx.fillStyle = '#757575';
       ctx.font = '10px Arial';
       ctx.fillText(`${Math.round(i / scaledInch)}`, i + 2, 10);
     }
     
-    // Draw half-inch marks
+    // Half-inch marks
     for (let i = scaledInch / 2; i <= rulerWidth; i += scaledInch) {
       if (i % scaledInch !== 0) {
         ctx.moveTo(i, 0);
@@ -125,7 +164,7 @@ const Ruler = () => {
       }
     }
     
-    // Draw quarter-inch marks
+    // Quarter-inch marks
     for (let i = scaledInch / 4; i <= rulerWidth; i += scaledInch / 2) {
       if (i % (scaledInch / 2) !== 0) {
         ctx.moveTo(i, 0);
@@ -166,9 +205,9 @@ const Ruler = () => {
     ctx.lineTo(rulerWidth - pageMargins.right, RULER_HEIGHT);
     
     ctx.stroke();
-  }, [rulerWidth, pageMargins, indents, isHoveringMarkers, hoverPosition, INCH_TO_PX, PAGE_WIDTH, pageWidth]);
+  }, [rulerWidth, pageMargins, indents, isHoveringMarkers, hoverPosition, INCH_TO_PX, PAGE_WIDTH]);
   
-  // Handle mouse events for marker interactions
+  // Handle mouse interactions
   const handleMouseMove = (e) => {
     if (!containerRef.current) return;
     
@@ -177,11 +216,11 @@ const Ruler = () => {
     
     setHoverPosition(mouseX);
     
-    // Detect hover near margin markers
+    // Detect hovering near markers
     const nearLeftMargin = Math.abs(mouseX - pageMargins.left) < 10;
     const nearRightMargin = Math.abs(mouseX - (rulerWidth - pageMargins.right)) < 10;
     
-    // Detect hover near indent markers
+    // Detect hovering near indent markers
     const leftIndentPos = pageMargins.left + indents.left;
     const firstLineIndentPos = leftIndentPos + indents.firstLine;
     const rightIndentPos = rulerWidth - pageMargins.right - indents.right;
@@ -200,24 +239,24 @@ const Ruler = () => {
     
     // Handle dragging operations
     if (isDragging === 'leftMargin') {
-      // Keep margins in reasonable bounds
-      const newLeftMargin = Math.max(0, Math.min(mouseX, rulerWidth / 2.5));
-      updatePageMargins({ left: newLeftMargin });
+      // Bound the margin to reasonable values
+      const newMargin = Math.max(0, Math.min(mouseX, rulerWidth / 2));
+      updatePageMargins({ left: newMargin });
     } else if (isDragging === 'rightMargin') {
-      const newRightMargin = Math.max(0, Math.min(rulerWidth - mouseX, rulerWidth / 2.5));
-      updatePageMargins({ right: newRightMargin });
+      const newMargin = Math.max(0, Math.min(rulerWidth - mouseX, rulerWidth / 2));
+      updatePageMargins({ right: newMargin });
     } else if (isDragging === 'leftIndent') {
-      // Left indent is relative to left margin
-      const newLeftIndent = Math.max(0, mouseX - pageMargins.left);
-      updateIndents({ left: newLeftIndent });
+      // Left indent is relative to margin
+      const newIndent = Math.max(0, mouseX - pageMargins.left);
+      updateIndents({ left: newIndent });
     } else if (isDragging === 'firstLineIndent') {
       // First line indent is relative to left indent
-      const newFirstLineIndent = Math.max(-indents.left, mouseX - pageMargins.left - indents.left);
-      updateIndents({ firstLine: newFirstLineIndent });
+      const newIndent = Math.max(-indents.left, mouseX - pageMargins.left - indents.left);
+      updateIndents({ firstLine: newIndent });
     } else if (isDragging === 'rightIndent') {
       // Right indent is relative to right margin
-      const newRightIndent = Math.max(0, rulerWidth - mouseX - pageMargins.right);
-      updateIndents({ right: newRightIndent });
+      const newIndent = Math.max(0, rulerWidth - mouseX - pageMargins.right);
+      updateIndents({ right: newIndent });
     }
   };
   
@@ -227,7 +266,7 @@ const Ruler = () => {
     const rect = containerRef.current.getBoundingClientRect();
     const mouseX = e.clientX - rect.left;
     
-    // Check if clicking on a marker
+    // Check what was clicked
     if (isHoveringMarkers.leftMargin) {
       setIsDragging('leftMargin');
       startDrag('leftMargin');
@@ -244,7 +283,7 @@ const Ruler = () => {
       setIsDragging('rightIndent');
       startDrag('rightIndent');
     } else {
-      // Add tab stop when clicking on ruler (not on any markers)
+      // Add tab stop when clicking elsewhere on ruler
       const relativePos = mouseX - pageMargins.left;
       if (relativePos > 0 && relativePos < rulerWidth - pageMargins.left - pageMargins.right) {
         addTabStop(relativePos);
@@ -256,10 +295,23 @@ const Ruler = () => {
     if (isDragging) {
       setIsDragging(null);
       endDrag();
+      
+      // Verify alignment after drag ends
+      setTimeout(() => {
+        const textPos = measureExactTextPosition();
+        if (textPos !== null && isDragging === 'leftMargin' && 
+            Math.abs(textPos - pageMargins.left) > 2) {
+          console.log("Post-drag misalignment detected:", {
+            textStart: textPos,
+            rulerMargin: pageMargins.left
+          });
+          updatePageMargins({ left: textPos });
+        }
+      }, 50);
     }
   };
   
-  // Handle global mouse up to end drag operations
+  // Handle global mouse up
   useEffect(() => {
     const handleGlobalMouseUp = () => {
       if (isDragging) {
@@ -272,6 +324,21 @@ const Ruler = () => {
     return () => window.removeEventListener('mouseup', handleGlobalMouseUp);
   }, [isDragging, endDrag]);
   
+  // Double-click to reset to default
+  const handleDoubleClick = (e) => {
+    if (!containerRef.current) return;
+    
+    const rect = containerRef.current.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left;
+    
+    // If double-clicking near margins, reset to 1 inch
+    if (Math.abs(mouseX - pageMargins.left) < 15) {
+      updatePageMargins({ left: INCH_TO_PX });
+    } else if (Math.abs(mouseX - (rulerWidth - pageMargins.right)) < 15) {
+      updatePageMargins({ right: INCH_TO_PX });
+    }
+  };
+  
   return (
     <div 
       ref={containerRef}
@@ -279,6 +346,7 @@ const Ruler = () => {
       onMouseMove={handleMouseMove}
       onMouseDown={handleMouseDown}
       onMouseUp={handleMouseUp}
+      onDoubleClick={handleDoubleClick}
       style={{ 
         cursor: isDragging || Object.values(isHoveringMarkers).some(v => v) ? 'col-resize' : 'pointer',
         width: rulerWidth > 0 ? `${rulerWidth}px` : '100%'

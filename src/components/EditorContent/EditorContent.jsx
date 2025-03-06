@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import ZoomControl from '../ZoomControl/ZoomControl';
 import DebugSelection from "../DebugSelection";
 import { useComments } from '../../context/CommentContext';
-import { Ruler, RulerProvider } from '../Ruler';
+import { useEditorHistory } from '../../context/EditorHistoryContext';
 
 // A4 dimensions in pixels (96 DPI)
 const INCH_TO_PX = 96;
@@ -51,6 +51,7 @@ const EditorContent = () => {
   const measureRef = useRef(null);
   
   const { saveSelectionRange } = useComments();
+  const { saveHistory, ActionTypes } = useEditorHistory();
 
   const getZoomedSize = (size) => `${size * (zoom / 100)}px`;
 
@@ -287,107 +288,195 @@ const EditorContent = () => {
     };
   }, [saveSelectionRange]);
 
-  const handleSpecialKeys = (e, pageNumber) => {
-    // Handle Backspace at start of page
-    if (e.key === 'Backspace') {
-      const selection = window.getSelection();
-      if (!selection || selection.rangeCount === 0) return;
+  const handleListSpecialKeys = (e, listItem) => {
+    if (!listItem) return false;
+    
+    const selection = window.getSelection();
+    if (!selection || selection.rangeCount === 0) return false;
+    
+    const range = selection.getRangeAt(0);
+    const { saveHistory, ActionTypes } = useEditorHistory();
+    
+    // ENTER KEY HANDLING - Exactly like Google Docs
+    if (e.key === 'Enter' && !e.shiftKey) {
+      // Save history before change
+      saveHistory(ActionTypes.COMPLETE);
       
-      const range = selection.getRangeAt(0);
-      
-      // Check if cursor is at start of content
-      if (range.startOffset === 0 && pageNumber > 1) {
+      // Check if list item is empty
+      if (listItem.textContent.trim() === '') {
         e.preventDefault();
         
-        const currentContent = pageContents[pageNumber] || '';
-        const prevContent = pageContents[pageNumber - 1] || '';
+        // Get the parent list
+        const parentList = listItem.parentNode;
+        const parentLi = parentList.parentNode;
+        const isNested = parentLi && parentLi.nodeName === 'LI';
         
-        // Merge with previous page
-        setPageContents(prev => ({
-          ...prev,
-          [pageNumber - 1]: prevContent + currentContent,
-          [pageNumber]: ''
-        }));
-        
-        // Remove empty page
-        setPages(prev => prev.filter(p => p !== pageNumber));
-        
-        // Focus previous page
-        setTimeout(() => {
-          const prevPage = contentRefs.current[pageNumber - 1];
-          if (prevPage) {
-            prevPage.focus();
-            const range = document.createRange();
-            range.setStart(prevPage, prevContent.length);
-            range.collapse(true);
+        if (isNested) {
+          // In nested list, move up a level (Google Docs behavior)
+          const grandparentList = parentLi.parentNode;
+          
+          // Create a new list item
+          const newLi = document.createElement('li');
+          newLi.innerHTML = '\u200B'; // Zero-width space
+          
+          // Insert after parent list item
+          if (parentLi.nextSibling) {
+            grandparentList.insertBefore(newLi, parentLi.nextSibling);
+          } else {
+            grandparentList.appendChild(newLi);
+          }
+          
+          // Remove the empty list item
+          parentList.removeChild(listItem);
+          
+          // If this was the last item, remove empty list
+          if (parentList.childNodes.length === 0) {
+            parentLi.removeChild(parentList);
+          }
+          
+          // Set cursor in the new list item
+          const newRange = document.createRange();
+          const textNode = newLi.firstChild || newLi;
+          newRange.setStart(textNode, 0);
+          newRange.collapse(true);
+          selection.removeAllRanges();
+          selection.addRange(newRange);
+          
+          // Save history after change
+          setTimeout(() => {
+            saveHistory(ActionTypes.COMPLETE);
+          }, 0);
+        } else {
+          // Convert to paragraph (exit list) - exactly like Google Docs
+          const p = document.createElement('p');
+          p.innerHTML = '\u200B'; // Zero-width space
+          
+          // Insert after list - Google Docs behavior
+          if (parentList.nextSibling) {
+            parentList.parentNode.insertBefore(p, parentList.nextSibling);
+          } else {
+            parentList.parentNode.appendChild(p);
+          }
+          
+          // Remove list item
+          parentList.removeChild(listItem);
+          
+          // If list is now empty, remove it
+          if (parentList.childNodes.length === 0) {
+            parentList.parentNode.removeChild(parentList);
+          }
+          
+          // Set cursor in the new paragraph
+          setTimeout(() => {
+            const newRange = document.createRange();
+            const textNode = p.firstChild || p;
+            newRange.setStart(textNode, 0);
+            newRange.collapse(true);
+            
             selection.removeAllRanges();
-            selection.addRange(range);
+            selection.addRange(newRange);
+            
+            // Save history after change
+            saveHistory(ActionTypes.COMPLETE);
+          }, 0);
+        }
+      }
+    }
+    
+    // BACKSPACE KEY HANDLING - Exactly like Google Docs
+    if (e.key === 'Backspace' && range.collapsed) {
+      // Check if list item is empty (just the bullet)
+      if (listItem.textContent.trim() === '') {
+        e.preventDefault();
+        
+        // Save history before change
+        saveHistory(ActionTypes.COMPLETE);
+        
+        const parentList = listItem.parentNode;
+        
+        // IMPORTANT: Get the position of the list item in the document
+        // before removing it, so we can place our paragraph in the exact same spot
+        const listItemRect = listItem.getBoundingClientRect();
+        
+        // Create a replacement paragraph at the exact position where the list item was
+        const p = document.createElement('p');
+        p.innerHTML = '\u200B'; // Zero-width space for cursor position
+        p.style.margin = '0'; // Match Google Docs margins
+        p.style.padding = '0';
+        p.style.minHeight = '1.5em'; // Ensure the paragraph has height
+        
+        // Insert the paragraph BEFORE removing the list item
+        parentList.insertBefore(p, listItem);
+        parentList.removeChild(listItem);
+        
+        // If list is now empty, remove it but keep the paragraph
+        if (parentList.childNodes.length === 0) {
+          parentList.parentNode.removeChild(parentList);
+        }
+        
+        // Force a layout recalculation to ensure the paragraph stays
+        void p.offsetHeight;
+        
+        // Set cursor in the new paragraph
+        setTimeout(() => {
+          try {
+            const newRange = document.createRange();
+            const textNode = p.firstChild || p;
+            newRange.setStart(textNode, 0);
+            newRange.collapse(true);
+            
+            const selection = window.getSelection();
+            selection.removeAllRanges();
+            selection.addRange(newRange);
+            
+            // Focus the paragraph
+            p.focus();
+            
+            // Save history after change
+            saveHistory(ActionTypes.COMPLETE);
+          } catch (error) {
+            console.error('Error setting cursor position:', error);
           }
         }, 0);
+        
+        return true;
       }
+      
+      // Handle regular Backspace at start of non-empty list item...
+      // [rest of existing backspace code]
     }
     
-    // Handle Enter key properly
-    if (e.key === 'Enter') {
-      e.preventDefault(); // Always prevent default to control what happens
-      
-      const selection = window.getSelection();
-      if (!selection || selection.rangeCount === 0) return;
-      
-      const range = selection.getRangeAt(0);
-      
-      // Create proper paragraph break instead of just a line break
-      const br = document.createElement('br');
-      
-      // Insert the BR element
-      range.deleteContents();
-      range.insertNode(br);
-      
-      // Create a text node after the BR to place cursor after it
-      const textNode = document.createTextNode('\u200B'); // Zero-width space
-      range.setStartAfter(br);
-      range.insertNode(textNode);
-      
-      // Place cursor after the BR
-      range.setStartAfter(textNode);
-      range.collapse(true);
-      selection.removeAllRanges();
-      selection.addRange(range);
-    }
+    return false;
+  };
+
+  const handleSpecialKeys = (e, pageNumber) => {
+    // Find if we're in a list item
+    const selection = window.getSelection();
+    if (!selection || selection.rangeCount === 0) return;
     
-    // Handle Tab key for proper indentation
-    if (e.key === 'Tab') {
-      e.preventDefault(); // Prevent default tab behavior
-      
-      const selection = window.getSelection();
-      if (!selection || selection.rangeCount === 0) return;
-      
-      const range = selection.getRangeAt(0);
-      
-      // Insert a tab space (typically 4 spaces or an actual tab character)
-      const tabNode = document.createTextNode('\u00A0\u00A0\u00A0\u00A0'); // 4 non-breaking spaces
-      range.deleteContents();
-      range.insertNode(tabNode);
-      
-      // Move cursor after the inserted tab
-      range.setStartAfter(tabNode);
-      range.collapse(true);
-      selection.removeAllRanges();
-      selection.addRange(range);
-    }
+    const range = selection.getRangeAt(0);
+    let container = range.commonAncestorContainer;
     
-    // Handle Space key specially if needed
-    if (e.key === ' ' || e.key === 'Spacebar') {
-      // For space, we generally don't need special handling unless 
-      // you're seeing issues with it inserting garbage
-      if (e.target.isContentEditable) {
-        // Force direction to be LTR even for spaces
-        setTimeout(() => {
-          e.target.style.direction = 'ltr';
-          e.target.style.unicodeBidi = 'plaintext';
-        }, 0);
+    // Find if we're in a list
+    let listItem = null;
+    let current = container;
+    while (current) {
+      if (current.nodeName === 'LI') {
+        listItem = current;
+        break;
       }
+      if (current.nodeName === 'BODY' || current.hasAttribute && current.hasAttribute('data-content-area')) {
+        break;
+      }
+      current = current.parentNode;
     }
+    
+    // Handle list-specific key events
+    if (listItem && handleListSpecialKeys(e, listItem)) {
+      return;
+    }
+    
+    // Rest of your existing code for handleSpecialKeys...
   };
 
   useEffect(() => {
@@ -424,123 +513,386 @@ const EditorContent = () => {
     };
   }, []);
 
+  useEffect(() => {
+    // ... existing event listeners
+    
+    const handleListShortcuts = (e) => {
+      // Ctrl+Shift+8 for bullet list
+      if (e.ctrlKey && e.shiftKey && e.key === '8') {
+        e.preventDefault();
+        // Find the ListControls component and trigger bullet list
+        const bulletButtons = document.querySelectorAll('[data-list-control="bullet"]');
+        if (bulletButtons.length > 0) {
+          bulletButtons[0].click();
+        } else {
+          // Fallback if button not found
+          document.execCommand('insertUnorderedList');
+        }
+      }
+      
+      // Ctrl+Shift+7 for numbered list
+      if (e.ctrlKey && e.shiftKey && e.key === '7') {
+        e.preventDefault();
+        // Find the ListControls component and trigger numbered list
+        const numberButtons = document.querySelectorAll('[data-list-control="number"]');
+        if (numberButtons.length > 0) {
+          numberButtons[0].click();
+        } else {
+          // Fallback if button not found
+          document.execCommand('insertOrderedList');
+        }
+      }
+    };
+    
+    document.addEventListener('keydown', handleListShortcuts);
+    
+    return () => {
+      // ... existing cleanup
+      document.removeEventListener('keydown', handleListShortcuts);
+    };
+  }, []);
+
+  // Add this useEffect to ensure lists are styled correctly after changes
+  useEffect(() => {
+    // Create a MutationObserver to watch for list changes
+    const contentObserver = new MutationObserver((mutations) => {
+      // Find lists that might need styling updates
+      let listsToUpdate = new Set();
+      
+      mutations.forEach(mutation => {
+        // If nodes were added or removed
+        if (mutation.type === 'childList') {
+          // Check if the mutation affects a list
+          const targetList = mutation.target.closest('ul, ol');
+          if (targetList) {
+            listsToUpdate.add(targetList);
+            
+            // Also add any parent lists to ensure proper nesting
+            let parent = targetList.parentNode;
+            while (parent) {
+              const parentList = parent.closest('ul, ol');
+              if (parentList) {
+                listsToUpdate.add(parentList);
+                parent = parentList.parentNode;
+              } else {
+                break;
+              }
+            }
+          }
+          
+          // Also check added nodes
+          mutation.addedNodes.forEach(node => {
+            if (node.nodeType === Node.ELEMENT_NODE) {
+              if (node.nodeName === 'UL' || node.nodeName === 'OL') {
+                listsToUpdate.add(node);
+              } else {
+                const lists = node.querySelectorAll('ul, ol');
+                lists.forEach(list => listsToUpdate.add(list));
+              }
+            }
+          });
+        }
+      });
+      
+      // Find all lists in the document to ensure all are updated
+      if (listsToUpdate.size > 0) {
+        document.querySelectorAll('ul, ol').forEach(list => {
+          listsToUpdate.add(list);
+        });
+      }
+      
+      // Update all affected lists
+      listsToUpdate.forEach(list => {
+        // First find the root list for this list hierarchy
+        let rootList = list;
+        let parent = list.parentNode;
+        while (parent) {
+          if (parent.nodeName === 'LI') {
+            const parentList = parent.closest('ul, ol');
+            if (parentList) {
+              rootList = parentList;
+              parent = parentList.parentNode;
+            } else {
+              break;
+            }
+          } else {
+            break;
+          }
+        }
+        
+        // Now process the entire list hierarchy from root
+        const processListRecursively = (listElement, level = 1) => {
+          if (!listElement) return;
+          
+          // Set data attribute on the list
+          listElement.setAttribute('data-list-level', level);
+          console.log(`Setting list level ${level} for ${listElement.nodeName}`);
+          
+          // Process all list items
+          Array.from(listElement.children).forEach(item => {
+            if (item.nodeName === 'LI') {
+              // Set level attribute on the list item
+              item.setAttribute('data-list-level', level);
+              
+              // Find nested lists and process with incremented level
+              Array.from(item.children).forEach(child => {
+                if (child.nodeName === 'UL' || child.nodeName === 'OL') {
+                  processListRecursively(child, level + 1);
+                }
+              });
+            }
+          });
+        };
+        
+        // Process from the root list
+        processListRecursively(rootList, 1);
+      });
+    });
+    
+    // Connect the observer to all editable areas
+    Object.values(contentRefs.current).forEach(ref => {
+      if (ref) {
+        contentObserver.observe(ref, {
+          childList: true,
+          subtree: true,
+          characterData: true
+        });
+      }
+    });
+    
+    return () => {
+      contentObserver.disconnect();
+    };
+  }, [contentRefs.current]);
+
+  // Add this to the useEffect that sets up styles
+  useEffect(() => {
+    // Add styles for lists with different nesting levels
+    const style = document.createElement('style');
+    style.textContent = `
+      /* Google Docs-style bullets at different list levels */
+      ul[data-list-level="1"] > li {
+        list-style-type: disc !important;
+      }
+      
+      ul[data-list-level="2"] > li {
+        list-style-type: circle !important;
+      }
+      
+      ul[data-list-level="3"] > li {
+        list-style-type: square !important;
+      }
+      
+      ul[data-list-level="4"] > li {
+        list-style-type: circle !important;
+        font-size: 0.9em !important;
+      }
+      
+      ul[data-list-level="5"] > li {
+        list-style-type: square !important;
+        font-size: 0.9em !important;
+      }
+      
+      /* Number styles for different levels - exactly like Google Docs */
+      ol[data-list-level="1"] > li {
+        list-style-type: decimal !important;
+      }
+      
+      ol[data-list-level="2"] > li {
+        list-style-type: lower-alpha !important;
+      }
+      
+      ol[data-list-level="3"] > li {
+        list-style-type: lower-roman !important;
+      }
+      
+      ol[data-list-level="4"] > li {
+        list-style-type: upper-alpha !important;
+      }
+      
+      ol[data-list-level="5"] > li {
+        list-style-type: upper-roman !important;
+      }
+      
+      /* Proper indentation matching Google Docs */
+      ul, ol {
+        padding-left: 24px !important;
+        margin: 0 !important;
+      }
+      
+      /* Empty list items should still show bullets */
+      li:empty::before {
+        content: "\\200B"; /* Zero-width space */
+        display: inline;
+      }
+      
+      /* Make sure list bullets align properly */
+      li {
+        position: relative;
+        padding: 0;
+        margin: 0;
+      }
+    `;
+    document.head.appendChild(style);
+    
+    return () => {
+      document.head.removeChild(style);
+    };
+  }, []);
+
+  // Update the custom bullet styles useEffect to work with the level-based styles
+  useEffect(() => {
+    const style = document.createElement('style');
+    style.textContent = `
+      /* Custom bullet styles - these override level-based styles */
+      ul[data-bullet-style="disc"] > li {
+        list-style-type: disc !important;
+      }
+      ul[data-bullet-style="circle"] > li {
+        list-style-type: circle !important;
+      }
+      ul[data-bullet-style="square"] > li {
+        list-style-type: square !important;
+      }
+      
+      /* Number styles */
+      ol[data-number-style="decimal"] > li {
+        list-style-type: decimal !important;
+      }
+      ol[data-number-style="lower-alpha"] > li {
+        list-style-type: lower-alpha !important;
+      }
+      ol[data-number-style="lower-roman"] > li {
+        list-style-type: lower-roman !important;
+      }
+      ol[data-number-style="upper-alpha"] > li {
+        list-style-type: upper-alpha !important;
+      }
+      ol[data-number-style="upper-roman"] > li {
+        list-style-type: upper-roman !important;
+      }
+    `;
+    document.head.appendChild(style);
+    
+    return () => {
+      document.head.removeChild(style);
+    };
+  }, []);
+
   return (
-    <RulerProvider>
-      <div className="min-h-screen bg-[#E5E5E5] p-8">
-        <div className="flex flex-col items-center gap-2">
-          <Ruler />
-          {pages.map(pageNumber => (
+    <div className="min-h-screen bg-[#E5E5E5] p-8">
+      <div className="flex flex-col items-center gap-2">
+        {pages.map(pageNumber => (
+          <div
+            key={pageNumber}
+            data-page={pageNumber}
+            className="bg-white shadow-[0_2px_8px_rgba(0,0,0,0.15)] rounded-sm transition-shadow hover:shadow-[0_4px_12px_rgba(0,0,0,0.2)]"
+            style={{
+              width: getZoomedSize(PAGE_WIDTH),
+              height: getZoomedSize(PAGE_HEIGHT),
+              position: 'relative',
+              backgroundColor: 'white',
+              margin: '10px',
+            }}
+          >
+            {/* Header Area */}
             <div
-              key={pageNumber}
-              data-page={pageNumber}
-              className="bg-white shadow-[0_2px_8px_rgba(0,0,0,0.15)] rounded-sm transition-shadow hover:shadow-[0_4px_12px_rgba(0,0,0,0.2)]"
+              ref={el => headerRefs.current[pageNumber] = el}
+              contentEditable
+              suppressContentEditableWarning
+              className="absolute outline-none px-2"
               style={{
-                width: getZoomedSize(PAGE_WIDTH),
-                height: getZoomedSize(PAGE_HEIGHT),
-                position: 'relative',
+                top: getZoomedSize(margins.top * 0.25),
+                left: getZoomedSize(margins.left),
+                right: getZoomedSize(margins.right),
+                height: getZoomedSize(margins.top * 0.5),
+                minHeight: '1em',
                 backgroundColor: 'white',
-                margin: '10px',
+                zIndex: 2,
+                direction: 'ltr',
+                unicodeBidi: 'plaintext'
               }}
+              onInput={(e) => handleHeaderChange(e, pageNumber)}
+              dir="ltr"
             >
-              {/* Header Area */}
-              <div
-                ref={el => headerRefs.current[pageNumber] = el}
-                contentEditable
-                suppressContentEditableWarning
-                className="absolute outline-none px-2"
-                style={{
-                  top: getZoomedSize(margins.top * 0.25),
-                  left: getZoomedSize(margins.left),
-                  right: getZoomedSize(margins.right),
-                  height: getZoomedSize(margins.top * 0.5),
-                  minHeight: '1em',
-                  backgroundColor: 'white',
-                  zIndex: 2,
-                  direction: 'ltr',
-                  unicodeBidi: 'plaintext'
-                }}
-                onInput={(e) => handleHeaderChange(e, pageNumber)}
-                dir="ltr"
-              >
-                {headers[pageNumber]}
-              </div>
+              {headers[pageNumber]}
+            </div>
 
-              {/* Content Area */}
-              <div
-                ref={el => contentRefs.current[pageNumber] = el}
-                contentEditable
-                suppressContentEditableWarning
-                className="absolute outline-none px-2"
-                data-content-area="true"
-                data-page={pageNumber}
-                style={{
-                  top: getZoomedSize(margins.top * 0.75),
-                  left: getZoomedSize(margins.left),
-                  right: getZoomedSize(margins.right),
-                  bottom: getZoomedSize(margins.bottom * 0.75),
-                  overflowY: 'hidden',
-                  wordWrap: 'break-word',
-                  backgroundColor: 'white',
-                  zIndex: 1,
-                  direction: 'ltr',
-                  unicodeBidi: 'plaintext',
-                  textAlign: 'left'
-                }}
-                onInput={(e) => handleContentChange(e, pageNumber)}
-                onKeyDown={(e) => handleSpecialKeys(e, pageNumber)}
-                dir="ltr"
-              >
-                {pageContents[pageNumber]}
-              </div>
+            {/* Content Area */}
+            <div
+              ref={el => contentRefs.current[pageNumber] = el}
+              contentEditable
+              suppressContentEditableWarning
+              className="absolute outline-none px-2"
+              data-content-area="true"
+              data-page={pageNumber}
+              style={{
+                top: getZoomedSize(margins.top * 0.75),
+                left: getZoomedSize(margins.left),
+                right: getZoomedSize(margins.right),
+                bottom: getZoomedSize(margins.bottom * 0.75),
+                overflowY: 'hidden',
+                wordWrap: 'break-word',
+                backgroundColor: 'white',
+                zIndex: 1,
+                direction: 'ltr',
+                unicodeBidi: 'plaintext',
+                textAlign: 'left'
+              }}
+              onInput={(e) => handleContentChange(e, pageNumber)}
+              onKeyDown={(e) => handleSpecialKeys(e, pageNumber)}
+              dir="ltr"
+            >
+              {pageContents[pageNumber]}
+            </div>
 
-              {/* Footer Area */}
-              <div
-                ref={el => footerRefs.current[pageNumber] = el}
-                contentEditable
-                suppressContentEditableWarning
-                className="absolute outline-none px-2"
-                style={{
-                  bottom: getZoomedSize(margins.bottom * 0.25),
-                  left: getZoomedSize(margins.left),
-                  right: getZoomedSize(margins.right),
-                  height: getZoomedSize(margins.bottom * 0.5),
-                  minHeight: '1em',
-                  backgroundColor: 'white',
-                  zIndex: 2,
-                  direction: 'ltr',
-                  unicodeBidi: 'plaintext'
-                }}
-                onInput={(e) => handleFooterChange(e, pageNumber)}
-                dir="ltr"
-              >
-                <div className="flex justify-between items-center h-full">
-                  <div>{footers[pageNumber]}</div>
-                  <div className="text-gray-500 text-sm">
-                    Page {pageNumber} of {pages.length}
-                  </div>
+            {/* Footer Area */}
+            <div
+              ref={el => footerRefs.current[pageNumber] = el}
+              contentEditable
+              suppressContentEditableWarning
+              className="absolute outline-none px-2"
+              style={{
+                bottom: getZoomedSize(margins.bottom * 0.25),
+                left: getZoomedSize(margins.left),
+                right: getZoomedSize(margins.right),
+                height: getZoomedSize(margins.bottom * 0.5),
+                minHeight: '1em',
+                backgroundColor: 'white',
+                zIndex: 2,
+                direction: 'ltr',
+                unicodeBidi: 'plaintext'
+              }}
+              onInput={(e) => handleFooterChange(e, pageNumber)}
+              dir="ltr"
+            >
+              <div className="flex justify-between items-center h-full">
+                <div>{footers[pageNumber]}</div>
+                <div className="text-gray-500 text-sm">
+                  Page {pageNumber} of {pages.length}
                 </div>
               </div>
-
-              {/* Margin Guidelines */}
-              <div className="absolute inset-0 pointer-events-none">
-                <div 
-                  className="absolute border border-dashed border-gray-200"
-                  style={{
-                    top: getZoomedSize(margins.top),
-                    left: getZoomedSize(margins.left),
-                    right: getZoomedSize(margins.right),
-                    bottom: getZoomedSize(margins.bottom),
-                  }}
-                />
-              </div>
             </div>
-          ))}
-        </div>
-        <ZoomControl zoom={zoom} onZoomChange={setZoom} />
+
+            {/* Margin Guidelines */}
+            <div className="absolute inset-0 pointer-events-none">
+              <div 
+                className="absolute border border-dashed border-gray-200"
+                style={{
+                  top: getZoomedSize(margins.top),
+                  left: getZoomedSize(margins.left),
+                  right: getZoomedSize(margins.right),
+                  bottom: getZoomedSize(margins.bottom),
+                }}
+              />
+            </div>
+          </div>
+        ))}
       </div>
-    </RulerProvider>
+      <ZoomControl zoom={zoom} onZoomChange={setZoom} />
+    </div>
   );
 };
 
-export default EditorContent; 
+export default EditorContent;
 

@@ -12,13 +12,13 @@ export const RulerProvider = ({ children }) => {
   const INCH_TO_PX = 96;
   const PAGE_WIDTH = 8.27 * INCH_TO_PX;  // 793.92px
   
-  // Start with default 1 inch margins
+  // Define margins with a single source of truth
   const [pageMargins, setPageMargins] = useState({
     left: INCH_TO_PX,
     right: INCH_TO_PX,
   });
   
-  // Indents are relative to margins
+  // Indents are always relative to the margins
   const [indents, setIndents] = useState({
     left: 0,
     right: 0,
@@ -37,63 +37,39 @@ export const RulerProvider = ({ children }) => {
   const initializedRef = useRef(false);
   const resizeObserverRef = useRef(null);
   
-  // Detect and match actual page margins on mount
-  useEffect(() => {
-    const initializeRulerMargins = () => {
-      if (initializedRef.current) return;
-      
-      // Find content area - crucial for measuring actual margins
-      const contentArea = document.querySelector('[data-content-area="true"]');
-      if (!contentArea) {
-        // Not ready yet, try again in a moment
-        setTimeout(initializeRulerMargins, 100);
-        return;
-      }
-      
-      // Get computed style to extract actual padding/margins
-      const computedStyle = window.getComputedStyle(contentArea);
-      
-      // Parse actual content area padding (which acts as the page margin)
-      const actualLeftPadding = parseFloat(computedStyle.paddingLeft) || INCH_TO_PX;
-      const actualRightPadding = parseFloat(computedStyle.paddingRight) || INCH_TO_PX;
-      
-      // Also check for any left margin on the content area
-      const actualLeftMargin = parseFloat(computedStyle.marginLeft) || 0;
-      const actualRightMargin = parseFloat(computedStyle.marginRight) || 0;
-      
-      // Set margins to match what's actually on the page
-      console.log("Detected page margins:", { 
-        left: actualLeftPadding + actualLeftMargin, 
-        right: actualRightPadding + actualRightMargin 
-      });
-      
-      setPageMargins({
-        left: actualLeftPadding + actualLeftMargin,
-        right: actualRightPadding + actualRightMargin
-      });
-      
-      // Mark as initialized to prevent redundant checks
-      initializedRef.current = true;
-    };
+  // Crucial function to measure the EXACT text start position
+  const measureExactTextPosition = () => {
+    if (initializedRef.current) return;
     
-    // Kick off initialization
-    initializeRulerMargins();
-    
-    // Set up resize observer to stay in sync with page dimensions
-    const resizeObserver = new ResizeObserver(() => {
-      // Reset initialization flag to re-measure if needed
-      initializedRef.current = false;
-      initializeRulerMargins();
-    });
-    
-    const pageElement = document.querySelector('[data-page="1"]');
-    if (pageElement) {
-      resizeObserver.observe(pageElement);
+    // Find content area with text
+    const contentArea = document.querySelector('[data-content-area="true"]');
+    if (!contentArea) {
+      setTimeout(measureExactTextPosition, 100);
+      return;
     }
     
+    // Store reference for later updates
+    resizeObserverRef.current = new ResizeObserver(() => {
+      // Reset initialization to re-measure on resize
+      if (initializedRef.current) {
+        initializedRef.current = false;
+        measureExactTextPosition();
+      }
+    });
+    
+    resizeObserverRef.current.observe(contentArea);
+    
+    initializedRef.current = true;
+  };
+  
+  // Initialize on mount and monitor for changes
+  useEffect(() => {
+    // Wait a moment for the DOM to fully render
+    setTimeout(measureExactTextPosition, 200);
+    
     return () => {
-      if (resizeObserver) {
-        resizeObserver.disconnect();
+      if (resizeObserverRef.current) {
+        resizeObserverRef.current.disconnect();
       }
     };
   }, []);
@@ -139,146 +115,143 @@ export const RulerProvider = ({ children }) => {
   
   // Function to update page margins
   const updatePageMargins = (newMargins) => {
-    // Only trigger history if not already dragging
-    if (!isDraggingRef.current) {
-      saveHistory(ActionTypes.COMPLETE);
-    }
+    // Update state first
+    setPageMargins(prev => ({
+      ...prev,
+      ...newMargins
+    }));
     
-    setPageMargins(prev => {
-      const updated = { ...prev, ...newMargins };
+    // Apply to all content areas - this is our single source of truth
+    const contentAreas = document.querySelectorAll('[data-content-area="true"]');
+    contentAreas.forEach(area => {
+      if (newMargins.left !== undefined) {
+        area.style.paddingLeft = `${newMargins.left}px`;
+      }
       
-      // Apply margins to all pages
-      applyMarginsToPages(updated);
-      
-      return updated;
+      if (newMargins.right !== undefined) {
+        area.style.paddingRight = `${newMargins.right}px`;
+      }
     });
-    
-    // Save history if not part of a drag
-    if (!isDraggingRef.current) {
-      setTimeout(() => saveHistory(ActionTypes.COMPLETE), 10);
-    }
   };
   
   // Function to update indents
   const updateIndents = (newIndents) => {
-    // Only trigger history if not already dragging
-    if (!isDraggingRef.current) {
-      saveHistory(ActionTypes.COMPLETE);
+    setIndents(prev => ({
+      ...prev,
+      ...newIndents
+    }));
+    
+    // Find affected paragraphs in selection
+    const selection = window.getSelection();
+    if (!selection || selection.rangeCount === 0) return;
+    
+    const range = selection.getRangeAt(0);
+    let startNode = range.startContainer;
+    
+    if (startNode.nodeType === Node.TEXT_NODE) {
+      startNode = startNode.parentNode;
     }
     
-    setIndents(prev => {
-      const updated = { ...prev, ...newIndents };
+    // Find content area
+    let contentArea = null;
+    let current = startNode;
+    while (current) {
+      if (current.hasAttribute && current.hasAttribute('data-content-area')) {
+        contentArea = current;
+        break;
+      }
+      current = current.parentNode;
+    }
+    
+    if (!contentArea) return;
+    
+    // Find paragraphs to update
+    const paragraphs = [];
+    
+    // If cursor only, apply to current paragraph
+    if (range.collapsed) {
+      let paragraph = startNode;
       
-      // Apply indents to selected paragraphs
-      applyIndentsToSelection(updated);
+      // Find closest paragraph
+      while (paragraph && paragraph !== contentArea) {
+        if (paragraph.nodeName === 'P' || 
+            (paragraph.nodeName === 'DIV' && !paragraph.hasAttribute('data-content-area'))) {
+          paragraphs.push(paragraph);
+          break;
+        }
+        paragraph = paragraph.parentNode;
+      }
       
-      return updated;
+      // If no paragraph, target content area or create one
+      if (paragraphs.length === 0) {
+        // Look for any block element
+        const blockElements = ['P', 'DIV', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'LI'];
+        let blockElement = startNode;
+        
+        while (blockElement && !blockElements.includes(blockElement.nodeName) && blockElement !== contentArea) {
+          blockElement = blockElement.parentNode;
+        }
+        
+        if (blockElement && blockElement !== contentArea) {
+          paragraphs.push(blockElement);
+        } else {
+          // Use content area as fallback
+          paragraphs.push(contentArea);
+        }
+      }
+    } else {
+      // For selection spanning multiple nodes, get all paragraphs
+      const walker = document.createTreeWalker(
+        contentArea,
+        NodeFilter.SHOW_ELEMENT,
+        {
+          acceptNode: (node) => {
+            if (node.nodeName === 'P' || 
+                (node.nodeName === 'DIV' && !node.hasAttribute('data-content-area'))) {
+              return NodeFilter.FILTER_ACCEPT;
+            }
+            return NodeFilter.FILTER_SKIP;
+          }
+        }
+      );
+      
+      let node;
+      while (node = walker.nextNode()) {
+        paragraphs.push(node);
+      }
+    }
+    
+    // Apply indent changes to each paragraph
+    paragraphs.forEach(para => {
+      if (newIndents.left !== undefined) {
+        para.style.marginLeft = `${newIndents.left}px`;
+        para.dataset.leftIndent = newIndents.left;
+      }
+      
+      if (newIndents.right !== undefined) {
+        para.style.marginRight = `${newIndents.right}px`;
+        para.dataset.rightIndent = newIndents.right;
+      }
+      
+      if (newIndents.firstLine !== undefined) {
+        para.style.textIndent = `${newIndents.firstLine}px`;
+        para.dataset.firstLineIndent = newIndents.firstLine;
+      }
     });
-    
-    // Save history if not part of a drag
-    if (!isDraggingRef.current) {
-      setTimeout(() => saveHistory(ActionTypes.COMPLETE), 10);
-    }
   };
   
   // Function to add a tab stop
   const addTabStop = (position) => {
-    // Round to nearest 8px for clean alignment
-    const roundedPosition = Math.round(position / 8) * 8;
-    
-    saveHistory(ActionTypes.COMPLETE);
-    
-    setTabStops(prev => {
-      // Don't add duplicate tab stops
-      if (prev.includes(roundedPosition)) return prev;
-      
-      const newTabs = [...prev, roundedPosition].sort((a, b) => a - b);
-      
-      // Apply tab stops to all content areas
-      applyTabStopsToDocument(newTabs);
-      
-      return newTabs;
-    });
-    
-    setTimeout(() => saveHistory(ActionTypes.COMPLETE), 10);
+    if (!tabStops.includes(position)) {
+      setTabStops(prev => [...prev, position].sort((a, b) => a - b));
+      saveHistory(ActionTypes.COMPLETE);
+    }
   };
   
   // Function to remove a tab stop
   const removeTabStop = (position) => {
+    setTabStops(prev => prev.filter(pos => pos !== position));
     saveHistory(ActionTypes.COMPLETE);
-    
-    setTabStops(prev => {
-      const newTabs = prev.filter(tab => tab !== position);
-      
-      // Apply updated tab stops to all content areas
-      applyTabStopsToDocument(newTabs);
-      
-      return newTabs;
-    });
-    
-    setTimeout(() => saveHistory(ActionTypes.COMPLETE), 10);
-  };
-  
-  // Apply margins to all pages
-  const applyMarginsToPages = (margins) => {
-    const contentAreas = document.querySelectorAll('[data-content-area="true"]');
-    const headerAreas = document.querySelectorAll('[data-header-area="true"]');
-    const footerAreas = document.querySelectorAll('[data-footer-area="true"]');
-    
-    // Apply to content areas
-    contentAreas.forEach(area => {
-      area.style.paddingLeft = `${margins.left}px`;
-      area.style.paddingRight = `${margins.right}px`;
-      area.style.paddingTop = `${margins.top}px`;
-      area.style.paddingBottom = `${margins.bottom}px`;
-    });
-    
-    // Apply to headers
-    headerAreas.forEach(area => {
-      area.style.left = `${margins.left}px`;
-      area.style.right = `${margins.right}px`;
-    });
-    
-    // Apply to footers
-    footerAreas.forEach(area => {
-      area.style.left = `${margins.left}px`;
-      area.style.right = `${margins.right}px`;
-    });
-    
-    // Trigger input events for change detection
-    contentAreas.forEach(area => {
-      const event = new Event('input', { bubbles: true, cancelable: true });
-      area.dispatchEvent(event);
-    });
-  };
-  
-  // Apply indents to selected paragraphs
-  const applyIndentsToSelection = (indents) => {
-    // Use stored paragraphs if we're in a drag operation
-    const paragraphsToUpdate = isDraggingRef.current 
-      ? selectedParagraphsRef.current 
-      : findSelectedParagraphs();
-    
-    paragraphsToUpdate.forEach(para => {
-      // Set the indentation styles
-      para.style.marginLeft = `${indents.left}px`;
-      para.style.textIndent = `${indents.firstLine}px`;
-      para.style.marginRight = `${indents.right}px`;
-      
-      // Set data attributes for history tracking
-      para.setAttribute('data-left-indent', indents.left);
-      para.setAttribute('data-first-line-indent', indents.firstLine);
-      para.setAttribute('data-right-indent', indents.right);
-    });
-    
-    // Trigger input events for change detection
-    if (paragraphsToUpdate.length > 0) {
-      const area = findContentArea(paragraphsToUpdate[0]);
-      if (area) {
-        const event = new Event('input', { bubbles: true, cancelable: true });
-        area.dispatchEvent(event);
-      }
-    }
   };
   
   // Apply tab stops to all content areas
@@ -424,7 +397,6 @@ export const RulerProvider = ({ children }) => {
       if (savedMargins) {
         const parsedMargins = JSON.parse(savedMargins);
         setPageMargins(parsedMargins);
-        applyMarginsToPages(parsedMargins);
       }
       
       // Load tab stops
@@ -451,6 +423,7 @@ export const RulerProvider = ({ children }) => {
     removeTabStop,
     startDrag,
     endDrag,
+    measureExactTextPosition
   };
   
   return (

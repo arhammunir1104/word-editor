@@ -11,6 +11,13 @@
   display: block;
   margin-left: auto !important;
   margin-right: auto !important;
+  /* Prevent any additional margins/padding */
+  padding: 0 !important;
+  border: 0 !important;
+  /* Ensure exact positioning */
+  box-sizing: border-box !important;
+  /* Ensure transforms work correctly */
+  transform-origin: center top;
 }
 
 /* Ruler Canvas */
@@ -21,7 +28,7 @@
   pointer-events: none;
 }
 
-/* Margin Markers - thin blue lines */
+/* Margin marker - vertical blue lines */
 .margin-marker {
   position: absolute;
   width: 1px;
@@ -104,10 +111,30 @@
   border-bottom-color: #1a73e8;
 }
 
-/* Styling for paragraphs to handle indentation */
+/* Content area styles - critical fixes */
+[data-content-area="true"] {
+  box-sizing: border-box !important;
+  margin: 0 !important; /* Prevent any margins */
+}
+
+/* Prevent uncontrolled margins from affecting text position */
+[data-content-area="true"] * {
+  box-sizing: border-box;
+}
+
+/* Ensure consistent margin handling for paragraphs */
 [data-content-area="true"] p, 
-[data-content-area="true"] div:not([data-content-area]) {
+[data-content-area="true"] div:not([data-content-area]),
+[data-content-area="true"] h1,
+[data-content-area="true"] h2, 
+[data-content-area="true"] h3,
+[data-content-area="true"] h4,
+[data-content-area="true"] h5,
+[data-content-area="true"] h6 {
   transition: margin-left 0.1s, margin-right 0.1s, text-indent 0.1s;
+  box-sizing: border-box;
+  margin-top: 0;
+  margin-bottom: 1em;
 }
 
 /* Indented paragraphs styling */
