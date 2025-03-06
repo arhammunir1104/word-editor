@@ -13,6 +13,7 @@ import { CommentProvider } from './context/CommentContext';
 import CommentSidebar from './components/Comments/CommentSidebar';
 import FloatingCommentButton from './components/Comments/FloatingCommentButton';
 import './styles/tableStyles.css';
+import './styles/lineSpacingStyles.css';
 
 const App = () => {
   return (

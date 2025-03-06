@@ -41,6 +41,7 @@ import HyperlinkModal from '../Hyperlink/HyperlinkModal';
 import HyperlinkTooltip from '../Hyperlink/HyperlinkTooltip';
 import * as ReactDOM from 'react-dom/client';
 import TableButton from '../Table/TableButton';
+import { LineSpacingButton } from '../LineSpacing';
 
 const EditorToolbar = () => {
   const { 
@@ -1744,6 +1745,8 @@ const EditorToolbar = () => {
           <Tooltip title="Comments">
             <CommentButton />
           </Tooltip>
+
+          <LineSpacingButton />
         </Box>
 
         {/* Right Arrow */}

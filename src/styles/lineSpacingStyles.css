@@ -1,0 +1,29 @@
+/* Line spacing styles */
+[data-content-area="true"] p, 
+[data-content-area="true"] div,
+[data-content-area="true"] h1,
+[data-content-area="true"] h2,
+[data-content-area="true"] h3,
+[data-content-area="true"] h4,
+[data-content-area="true"] h5,
+[data-content-area="true"] h6,
+[data-content-area="true"] li {
+  line-height: inherit;
+}
+
+/* Support for copy-paste and inheritance */
+[data-content-area="true"] [style*="line-height"] * {
+  line-height: inherit;
+}
+
+/* Ensure spacing persists for new paragraphs */
+[data-content-area="true"] p + p {
+  line-height: inherit;
+}
+
+/* Ensure line spacing doesn't interfere with list spacing */
+[data-content-area="true"] ul,
+[data-content-area="true"] ol {
+  margin-top: 0;
+  margin-bottom: 0;
+} 
