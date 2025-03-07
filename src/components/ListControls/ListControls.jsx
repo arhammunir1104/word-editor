@@ -91,43 +91,55 @@ const ListControls = () => {
     if (!list) return;
     
     const processListRecursively = (listElement, level = 1) => {
-      if (!listElement) return;
-      
-      // Set data attribute on the list
-      listElement.setAttribute('data-list-level', level);
-      
-      // Apply custom bullet style if available
-      if (listElement.nodeName === 'UL') {
-        // Get the stored style or use the pattern
-        const bulletStyle = listElement.getAttribute('data-bullet-style') || 
-                           BULLET_NEST_PATTERN[(level - 1) % BULLET_NEST_PATTERN.length];
-        listElement.setAttribute('data-bullet-style', bulletStyle);
-      } else if (listElement.nodeName === 'OL') {
-        // Get the stored style or use the pattern
-        const numberStyle = listElement.getAttribute('data-number-style') || 
-                           NUMBER_NEST_PATTERN[(level - 1) % NUMBER_NEST_PATTERN.length];
-        listElement.setAttribute('data-number-style', numberStyle);
+      // Skip non-list elements
+      if (!listElement || (listElement.tagName !== 'UL' && listElement.tagName !== 'OL')) {
+        return;
       }
       
-      // Process all list items
-      Array.from(listElement.children).forEach(item => {
-        if (item.nodeName === 'LI') {
-          // Set level attribute on the list item
-          item.setAttribute('data-list-level', level);
-          
-          // Find nested lists and process with incremented level
-          Array.from(item.children).forEach(child => {
-            if (child.nodeName === 'UL' || child.nodeName === 'OL') {
-              // For new nested lists, inherit style from parent
-              if (child.nodeName === 'UL' && !child.hasAttribute('data-bullet-style')) {
-                const bulletStyle = listElement.getAttribute('data-bullet-style') || lastBulletStyle;
-                child.setAttribute('data-bullet-style', bulletStyle);
-              } else if (child.nodeName === 'OL' && !child.hasAttribute('data-number-style')) {
-                const numberStyle = listElement.getAttribute('data-number-style') || lastNumberStyle;
-                child.setAttribute('data-number-style', numberStyle);
-              }
-              
-              processListRecursively(child, level + 1);
+      // Apply the appropriate style based on list type and level
+      if (listElement.tagName === 'UL') {
+        // Bullet style hierarchy
+        switch (level) {
+          case 1:
+            listElement.setAttribute('data-bullet-style', 'disc');
+            break;
+          case 2:
+            listElement.setAttribute('data-bullet-style', 'circle');
+            break;
+          case 3:
+          default:
+            listElement.setAttribute('data-bullet-style', 'square');
+            break;
+        }
+      } else if (listElement.tagName === 'OL') {
+        // Number style hierarchy
+        switch (level % 5) { // Cycle through 5 styles
+          case 1:
+            listElement.setAttribute('data-number-style', 'decimal');
+            break;
+          case 2:
+            listElement.setAttribute('data-number-style', 'lower-alpha');
+            break;
+          case 3:
+            listElement.setAttribute('data-number-style', 'lower-roman');
+            break;
+          case 4:
+            listElement.setAttribute('data-number-style', 'upper-alpha');
+            break;
+          case 0: // Level 5, 10, etc.
+            listElement.setAttribute('data-number-style', 'upper-roman');
+            break;
+        }
+      }
+      
+      // Process all list items in this list
+      Array.from(listElement.children).forEach(child => {
+        if (child.tagName === 'LI') {
+          // Find nested lists inside this list item
+          Array.from(child.children).forEach(grandchild => {
+            if (grandchild.tagName === 'UL' || grandchild.tagName === 'OL') {
+              // Process this nested list with incremented level
+              processListRecursively(grandchild, level + 1);
             }
           });
         }

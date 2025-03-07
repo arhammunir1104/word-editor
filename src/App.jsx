@@ -15,6 +15,7 @@ import FloatingCommentButton from './components/Comments/FloatingCommentButton';
 import './styles/tableStyles.css';
 import './styles/lineSpacingStyles.css';
 import './styles/listStyles.css';
+import './styles/editorStyles.css';
 
 const App = () => {
   return (

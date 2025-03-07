@@ -1,6 +1,31 @@
 import React, { useState } from 'react';
-import { AppBar, Toolbar, Typography, IconButton, TextField, Avatar, Menu, MenuItem, Box } from '@mui/material';
-import { Menu as MenuIcon, StarBorder, DriveFileMove, CloudDone, AccessTime, ChatBubbleOutline, Share } from '@mui/icons-material';
+import { AppBar, Toolbar, Typography, IconButton, TextField, Avatar, Menu, MenuItem, Divider, ListItemIcon, ListItemText, Box } from '@mui/material';
+import { 
+  Menu as MenuIcon, 
+  StarBorder, 
+  DriveFileMove, 
+  CloudDone, 
+  AccessTime, 
+  ChatBubbleOutline, 
+  Share,
+  Add as AddIcon,
+  FolderOpen,
+  FileCopy,
+  PersonAdd,
+  Email,
+  GetApp,
+  DriveFileRenameOutline,
+  Folder,
+  Link,
+  Delete,
+  History,
+  OfflinePin,
+  Info,
+  Security,
+  Language,
+  Settings,
+  Print
+} from '@mui/icons-material';
 
 const EditorHeader = () => {
   const [documentName, setDocumentName] = useState('Untitled document');
@@ -34,6 +59,13 @@ const EditorHeader = () => {
 
   const handleFormatClose = () => {
     setAnchorElFormat(null);
+  };
+  
+  // Handle menu item clicks
+  const handleMenuItemClick = (action) => {
+    handleFileClose();
+    console.log(`Action: ${action}`);
+    // Implement the respective actions later
   };
 
   return (
@@ -191,13 +223,157 @@ const EditorHeader = () => {
         ))}
       </Toolbar>
 
-      {/* Keep existing Menu components */}
-      <Menu anchorEl={anchorElFile} open={Boolean(anchorElFile)} onClose={handleFileClose}>
-        <MenuItem onClick={handleFileClose}>New</MenuItem>
-        <MenuItem onClick={handleFileClose}>Open</MenuItem>
-        <MenuItem onClick={handleFileClose}>Save</MenuItem>
-        <MenuItem onClick={handleFileClose}>Save as</MenuItem>
+      {/* File Menu with all Google Docs options */}
+      <Menu 
+        anchorEl={anchorElFile} 
+        open={Boolean(anchorElFile)} 
+        onClose={handleFileClose}
+        PaperProps={{
+          sx: {
+            width: '280px',
+            maxHeight: '90vh',
+            overflow: 'auto'
+          }
+        }}
+      >
+        <MenuItem onClick={() => handleMenuItemClick('new')}>
+          <ListItemIcon>
+            <AddIcon fontSize="small" />
+          </ListItemIcon>
+          <ListItemText>New</ListItemText>
+          <Typography variant="body2" color="text.secondary" sx={{ ml: 2 }}>
+            
+          </Typography>
+        </MenuItem>
+        
+        <MenuItem onClick={() => handleMenuItemClick('open')}>
+          <ListItemIcon>
+            <FolderOpen fontSize="small" />
+          </ListItemIcon>
+          <ListItemText>Open</ListItemText>
+          <Typography variant="body2" color="text.secondary" sx={{ ml: 2 }}>
+            Ctrl+O
+          </Typography>
+        </MenuItem>
+        
+        <MenuItem onClick={() => handleMenuItemClick('copy')}>
+          <ListItemIcon>
+            <FileCopy fontSize="small" />
+          </ListItemIcon>
+          <ListItemText>Make a copy</ListItemText>
+        </MenuItem>
+        
+        <Divider />
+        
+        <MenuItem onClick={() => handleMenuItemClick('share')}>
+          <ListItemIcon>
+            <PersonAdd fontSize="small" />
+          </ListItemIcon>
+          <ListItemText>Share</ListItemText>
+        </MenuItem>
+        
+        <MenuItem onClick={() => handleMenuItemClick('email')}>
+          <ListItemIcon>
+            <Email fontSize="small" />
+          </ListItemIcon>
+          <ListItemText>Email</ListItemText>
+        </MenuItem>
+        
+        <MenuItem onClick={() => handleMenuItemClick('download')}>
+          <ListItemIcon>
+            <GetApp fontSize="small" />
+          </ListItemIcon>
+          <ListItemText>Download</ListItemText>
+        </MenuItem>
+        
+        <Divider />
+        
+        <MenuItem onClick={() => handleMenuItemClick('rename')}>
+          <ListItemIcon>
+            <DriveFileRenameOutline fontSize="small" />
+          </ListItemIcon>
+          <ListItemText>Rename</ListItemText>
+        </MenuItem>
+        
+        <MenuItem onClick={() => handleMenuItemClick('move')}>
+          <ListItemIcon>
+            <Folder fontSize="small" />
+          </ListItemIcon>
+          <ListItemText>Move</ListItemText>
+        </MenuItem>
+        
+        <MenuItem onClick={() => handleMenuItemClick('add-shortcut')}>
+          <ListItemIcon>
+            <Link fontSize="small" />
+          </ListItemIcon>
+          <ListItemText>Add a shortcut to Drive</ListItemText>
+        </MenuItem>
+        
+        <MenuItem onClick={() => handleMenuItemClick('move-to-bin')}>
+          <ListItemIcon>
+            <Delete fontSize="small" />
+          </ListItemIcon>
+          <ListItemText>Move to bin</ListItemText>
+        </MenuItem>
+        
+        <Divider />
+        
+        <MenuItem onClick={() => handleMenuItemClick('version-history')}>
+          <ListItemIcon>
+            <History fontSize="small" />
+          </ListItemIcon>
+          <ListItemText>Version history</ListItemText>
+        </MenuItem>
+        
+        <MenuItem onClick={() => handleMenuItemClick('offline')}>
+          <ListItemIcon>
+            <OfflinePin fontSize="small" />
+          </ListItemIcon>
+          <ListItemText>Make available offline</ListItemText>
+        </MenuItem>
+        
+        <Divider />
+        
+        <MenuItem onClick={() => handleMenuItemClick('details')}>
+          <ListItemIcon>
+            <Info fontSize="small" />
+          </ListItemIcon>
+          <ListItemText>Details</ListItemText>
+        </MenuItem>
+        
+        <MenuItem onClick={() => handleMenuItemClick('security')}>
+          <ListItemIcon>
+            <Security fontSize="small" />
+          </ListItemIcon>
+          <ListItemText>Security limitations</ListItemText>
+        </MenuItem>
+        
+        <MenuItem onClick={() => handleMenuItemClick('language')}>
+          <ListItemIcon>
+            <Language fontSize="small" />
+          </ListItemIcon>
+          <ListItemText>Language</ListItemText>
+        </MenuItem>
+        
+        <MenuItem onClick={() => handleMenuItemClick('page-setup')}>
+          <ListItemIcon>
+            <Settings fontSize="small" />
+          </ListItemIcon>
+          <ListItemText>Page setup</ListItemText>
+        </MenuItem>
+        
+        <MenuItem onClick={() => handleMenuItemClick('print')}>
+          <ListItemIcon>
+            <Print fontSize="small" />
+          </ListItemIcon>
+          <ListItemText>Print</ListItemText>
+          <Typography variant="body2" color="text.secondary" sx={{ ml: 2 }}>
+            Ctrl+P
+          </Typography>
+        </MenuItem>
       </Menu>
+
+      {/* Keep existing Format Menu */}
       <Menu anchorEl={anchorElFormat} open={Boolean(anchorElFormat)} onClose={handleFormatClose}>
         <MenuItem onClick={handleFormatClose}>Bold</MenuItem>
         <MenuItem onClick={handleFormatClose}>Italic</MenuItem>

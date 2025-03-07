@@ -1488,6 +1488,16 @@ const EditorToolbar = () => {
     }));
   };
 
+  const handleIndent = (direction) => {
+    // Create a custom event for the EditorContent component to handle
+    const event = new CustomEvent('editor-indent', { 
+      detail: { direction } 
+    });
+    
+    // Dispatch the event to the document so EditorContent can catch it
+    document.dispatchEvent(event);
+  };
+
   return (
     <>
       <Box sx={{
@@ -1790,6 +1800,26 @@ const EditorToolbar = () => {
           </Tooltip>
 
           <LineSpacingButton />
+
+          <Tooltip title="Decrease Indent">
+            <IconButton
+              size="small"
+              onClick={() => handleIndent('decrease')}
+              sx={{ padding: '4px' }}
+            >
+              <FormatIndentDecrease sx={{ fontSize: '18px' }} />
+            </IconButton>
+          </Tooltip>
+
+          <Tooltip title="Increase Indent">
+            <IconButton
+              size="small"
+              onClick={() => handleIndent('increase')}
+              sx={{ padding: '4px' }}
+            >
+              <FormatIndentIncrease sx={{ fontSize: '18px' }} />
+            </IconButton>
+          </Tooltip>
         </Box>
 
         {/* Right Arrow */}
