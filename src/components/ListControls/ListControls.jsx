@@ -1,77 +1,75 @@
-import React, { useEffect } from 'react';
-import { Box, IconButton, Tooltip, Menu, MenuItem, ListItemIcon, ListItemText } from '@mui/material';
+import React, { useState, useEffect } from 'react';
+import { Box, IconButton, Menu, MenuItem, Tooltip, Divider, ListItemIcon, ListItemText } from '@mui/material';
 import {
   FormatListBulleted,
   FormatListNumbered,
-  ArrowDropDown
+  ArrowDropDown,
+  Check as CheckIcon,
+  Circle as CircleIcon,
+  Stop as SquareIcon,
+  KeyboardArrowRight,
 } from '@mui/icons-material';
 import { useEditorHistory } from '../../context/EditorHistoryContext';
 
-// Bullet styles and their corresponding HTML entity codes/characters
+// Constants for bullet styles
 const BULLET_STYLES = {
-  DISC: 'disc',       // Filled Circle (Level 1)
-  CIRCLE: 'circle',   // Hollow Circle (Level 2)
-  SQUARE: 'square',   // Filled Square (Level 3) 
-  HOLLOW_CIRCLE: 'circle', // Small Hollow Circle (Level 4)
-  HOLLOW_SQUARE: 'square', // Small Hollow Square (Level 5)
+  DISC: 'disc',
+  CIRCLE: 'circle',
+  SQUARE: 'square',
+  TRIANGLE: 'triangle',
 };
 
-// Numbered list types and their formats
+// Constants for number styles
 const NUMBER_STYLES = {
-  DECIMAL: 'decimal',           // 1, 2, 3
-  LOWER_ALPHA: 'lower-alpha',   // a, b, c
-  LOWER_ROMAN: 'lower-roman',   // i, ii, iii
-  UPPER_ALPHA: 'upper-alpha',   // A, B, C
-  UPPER_ROMAN: 'upper-roman',   // I, II, III
+  DECIMAL: 'decimal',
+  LOWER_ALPHA: 'lower-alpha',
+  UPPER_ALPHA: 'upper-alpha',
+  LOWER_ROMAN: 'lower-roman',
+  UPPER_ROMAN: 'upper-roman',
 };
 
-// Nesting patterns for each list type (Google Docs patterns)
-const BULLET_NEST_PATTERN = [
-  BULLET_STYLES.DISC,
-  BULLET_STYLES.CIRCLE, 
-  BULLET_STYLES.SQUARE,
-  BULLET_STYLES.HOLLOW_CIRCLE,
-  BULLET_STYLES.HOLLOW_SQUARE,
-];
-
-const NUMBER_NEST_PATTERN = [
-  NUMBER_STYLES.DECIMAL,
-  NUMBER_STYLES.LOWER_ALPHA,
-  NUMBER_STYLES.LOWER_ROMAN,
-  NUMBER_STYLES.UPPER_ALPHA,
-  NUMBER_STYLES.UPPER_ROMAN,
-];
+// Map of indent levels to default bullet styles
+const DEFAULT_BULLET_STYLES = {
+  1: BULLET_STYLES.DISC,
+  2: BULLET_STYLES.CIRCLE,
+  3: BULLET_STYLES.SQUARE,
+  4: BULLET_STYLES.TRIANGLE,
+};
 
 const ListControls = () => {
   const { saveHistory, ActionTypes } = useEditorHistory();
-  const [bulletMenuAnchor, setBulletMenuAnchor] = React.useState(null);
-  const [numberMenuAnchor, setNumberMenuAnchor] = React.useState(null);
-  const [lastBulletStyle, setLastBulletStyle] = React.useState(BULLET_STYLES.DISC);
-  const [lastNumberStyle, setLastNumberStyle] = React.useState(NUMBER_STYLES.DECIMAL);
+  const [bulletMenuAnchor, setBulletMenuAnchor] = useState(null);
+  const [numberMenuAnchor, setNumberMenuAnchor] = useState(null);
+  const [bulletSubMenuAnchor, setBulletSubMenuAnchor] = useState(null);
+  const [numberSubMenuAnchor, setNumberSubMenuAnchor] = useState(null);
+  const [bulletMenuAnchorEl, setBulletMenuAnchorEl] = useState(null);
+  const [numberMenuAnchorEl, setNumberMenuAnchorEl] = useState(null);
 
-  // Helper function to determine list nesting level
+  // Get the current list level of an element
   const getListLevel = (element) => {
     if (!element) return 0;
     
-    // Check for list item element
     if (element.nodeName === 'LI') {
-      // Find parent list
-      const parentList = element.closest('ul, ol');
-      if (!parentList) return 0;
+      // Check for data-level attribute
+      if (element.hasAttribute('data-level')) {
+        return parseInt(element.getAttribute('data-level'));
+      }
       
-      // Check for nesting by counting parent lists
-      let level = 0;
-      let current = parentList;
+      // Check for parent list's data-level
+      const parentList = element.parentElement;
+      if (parentList && parentList.hasAttribute('data-level')) {
+        return parseInt(parentList.getAttribute('data-level'));
+      }
       
-      while (current) {
-        // Only count if it's a list within a list item
-        if (current.nodeName === 'UL' || current.nodeName === 'OL') {
-          level++;
-          
-          // Go up to parent list item, then to its parent list
-          const parentLi = current.parentElement;
+      // If no data-level, check nesting
+    let level = 1;
+    let parent = element.parentElement;
+    while (parent) {
+        if (parent.nodeName === 'UL' || parent.nodeName === 'OL') {
+          const parentLi = parent.parentElement;
           if (parentLi && parentLi.nodeName === 'LI') {
-            current = parentLi.parentElement;
+          level++;
+            parent = parentLi.parentElement;
           } else {
             break;
           }
@@ -79,903 +77,836 @@ const ListControls = () => {
           break;
         }
       }
-      
       return level;
     }
     
     return 0;
   };
-  
-  // Update all items in a list with correct styles
+
+  // Update all list items' styles based on their levels
   const updateAllListItemStyles = (list) => {
     if (!list) return;
-    
+
     const processListRecursively = (listElement, level = 1) => {
-      // Skip non-list elements
-      if (!listElement || (listElement.tagName !== 'UL' && listElement.tagName !== 'OL')) {
-        return;
-      }
+      if (!listElement) return;
       
-      // Apply the appropriate style based on list type and level
-      if (listElement.tagName === 'UL') {
-        // Bullet style hierarchy
-        switch (level) {
-          case 1:
-            listElement.setAttribute('data-bullet-style', 'disc');
-            break;
-          case 2:
-            listElement.setAttribute('data-bullet-style', 'circle');
-            break;
-          case 3:
-          default:
-            listElement.setAttribute('data-bullet-style', 'square');
-            break;
-        }
-      } else if (listElement.tagName === 'OL') {
-        // Number style hierarchy
-        switch (level % 5) { // Cycle through 5 styles
-          case 1:
-            listElement.setAttribute('data-number-style', 'decimal');
-            break;
-          case 2:
-            listElement.setAttribute('data-number-style', 'lower-alpha');
-            break;
-          case 3:
-            listElement.setAttribute('data-number-style', 'lower-roman');
-            break;
-          case 4:
-            listElement.setAttribute('data-number-style', 'upper-alpha');
-            break;
-          case 0: // Level 5, 10, etc.
-            listElement.setAttribute('data-number-style', 'upper-roman');
-            break;
-        }
-      }
+      // Set data-level attribute on the list
+      listElement.setAttribute('data-level', level);
       
-      // Process all list items in this list
-      Array.from(listElement.children).forEach(child => {
-        if (child.tagName === 'LI') {
-          // Find nested lists inside this list item
-          Array.from(child.children).forEach(grandchild => {
-            if (grandchild.tagName === 'UL' || grandchild.tagName === 'OL') {
-              // Process this nested list with incremented level
-              processListRecursively(grandchild, level + 1);
-            }
-          });
+      // Process each list item
+      Array.from(listElement.children).forEach(li => {
+        if (li.nodeName !== 'LI') return;
+        
+        // Set data-level attribute on the list item
+        li.setAttribute('data-level', level);
+        
+        // Set appropriate bullet style based on level
+        if (listElement.nodeName === 'UL') {
+          const bulletStyle = DEFAULT_BULLET_STYLES[level] || BULLET_STYLES.DISC;
+          listElement.style.listStyleType = bulletStyle;
         }
+        
+        // Find nested lists within this li and process them
+        const nestedLists = li.querySelectorAll(':scope > ul, :scope > ol');
+        nestedLists.forEach(nestedList => {
+          processListRecursively(nestedList, level + 1);
+        });
       });
     };
     
-    // Start processing from the root list
-    processListRecursively(list, 1);
-    
-    // Force a reflow for the styles to take effect
-    void list.offsetHeight;
-  };
-  
-  // Helper to find current list item
-  const getListItem = (node) => {
-    if (!node) return null;
-    
-    // If we're already on a list item, return it
-    if (node.nodeName === 'LI') {
-      return node;
-    }
-    
-    // If we're on a text node, get its parent
-    if (node.nodeType === Node.TEXT_NODE) {
-      node = node.parentNode;
-    }
-    
-    // Walk up the DOM to find a list item
-    while (node && node.nodeName !== 'LI') {
-      node = node.parentNode;
-      if (!node || node.nodeName === 'BODY') return null;
-    }
-    
-    return node;
+    processListRecursively(list);
   };
 
-  // Handle empty list item action (Enter on empty item or Backspace at start)
+  // Get list item from node or its parent
+  const getListItem = (node) => {
+    let current = node;
+    
+    // If it's a text node, get its parent
+    if (current.nodeType === Node.TEXT_NODE) {
+      current = current.parentNode;
+    }
+    
+    // Traverse up to find a list item
+    while (current && current.nodeName !== 'LI') {
+      if (current.nodeName === 'DIV' && current.getAttribute('data-content-area') === 'true') {
+        return null; // Reached content area without finding a list item
+      }
+      
+      current = current.parentNode;
+      if (!current) return null;
+    }
+    
+    return current;
+  };
+
+  // Handle empty list item (e.g., when backspace is pressed or Enter on empty line)
   const handleEmptyListItem = (listItem, action) => {
     if (!listItem) return false;
     
-    const isEmpty = listItem.textContent.trim() === '';
+    // Save before making changes
+    saveHistory(ActionTypes.COMPLETE);
     
-    if (isEmpty || action === 'force') {
-      const parentList = listItem.parentNode;
-      const parentListItem = parentList.parentNode;
-      
-      if (action === 'exit' || action === 'force' || action === 'backspace') {
-        // When we're handling a backspace on an empty list item,
-        // we want to convert it to a paragraph in place
-        if (action === 'backspace') {
-          // Save history before change
-          saveHistory(ActionTypes.COMPLETE);
-          
-          // Create a new paragraph to replace the empty list item
-          const p = document.createElement('p');
-          p.innerHTML = '\u200B'; // Zero-width space
-          
-          // Replace the list item with the paragraph in the same position
-          parentList.insertBefore(p, listItem);
-          parentList.removeChild(listItem);
-          
-          // If list is now empty, remove it
-          if (parentList.childNodes.length === 0) {
-            parentList.parentNode.removeChild(parentList);
-          }
-          
-          // Set cursor in the new paragraph
-          setTimeout(() => {
-            const range = document.createRange();
-            const textNode = p.firstChild || p;
-            range.setStart(textNode, 0);
-            range.collapse(true);
-            
-            const selection = window.getSelection();
-            selection.removeAllRanges();
-            selection.addRange(range);
-            
-            // Save history after change
-            saveHistory(ActionTypes.COMPLETE);
-          }, 0);
-          
-          return true;
-        }
+    const listElement = listItem.parentNode;
+    if (!listElement) return false;
+    
+    // Get the current level
+    const level = getListLevel(listItem);
+    
+    if (action === 'outdent') {
+      // If at level 1, convert to paragraph
+      if (level === 1) {
+        const newP = document.createElement('p');
+        newP.innerHTML = listItem.innerHTML;
+        listElement.parentNode.insertBefore(newP, listElement);
         
-        // Exit list behavior - Google Docs style
-        if (parentListItem && parentListItem.nodeName === 'LI') {
-          // We're in a nested list, move up one level
-          const grandparentList = parentListItem.parentNode;
-          
-          // Create a new empty list item at the parent's level
-          const newLi = document.createElement('li');
-          newLi.innerHTML = '\u200B'; // Zero-width space
-          
-          // Insert after the parent list item
-          if (parentListItem.nextSibling) {
-            grandparentList.insertBefore(newLi, parentListItem.nextSibling);
-          } else {
-            grandparentList.appendChild(newLi);
-          }
-          
-          // Remove the empty list item
-          parentList.removeChild(listItem);
-          
-          // If this was the last item, remove the empty nested list
-          if (parentList.childNodes.length === 0) {
-            parentListItem.removeChild(parentList);
-          }
-          
-          // Set cursor in the new list item
-          setTimeout(() => {
-            const range = document.createRange();
-            const textNode = newLi.firstChild || newLi;
-            range.setStart(textNode, 0);
-            range.collapse(true);
-            
-            const selection = window.getSelection();
-            selection.removeAllRanges();
-            selection.addRange(range);
-            
-            // Save history after the action
-            saveHistory(ActionTypes.COMPLETE);
-          }, 0);
-          
-          return true;
+        // If this was the last item, remove the entire list
+        if (listElement.children.length === 1) {
+          listElement.parentNode.removeChild(listElement);
         } else {
-          // Top level - convert to paragraph (Google Docs behavior)
-          const p = document.createElement('p');
-          p.innerHTML = '\u200B'; // Zero-width space for cursor position
-          
-          // Insert after the list (Google Docs behavior)
-          if (parentList.nextSibling) {
-            parentList.parentNode.insertBefore(p, parentList.nextSibling);
-          } else {
-            parentList.parentNode.appendChild(p);
-          }
-          
-          // Remove the list item
-          parentList.removeChild(listItem);
-          
-          // If list is now empty, remove it
-          if (parentList.childNodes.length === 0) {
-            parentList.parentNode.removeChild(parentList);
-          }
-          
-          // Set cursor in the new paragraph
-          setTimeout(() => {
-            const range = document.createRange();
-            const textNode = p.firstChild || p;
-            range.setStart(textNode, 0);
-            range.collapse(true);
-            
-            const selection = window.getSelection();
-            selection.removeAllRanges();
-            selection.addRange(range);
-            
-            // Save history after the action
-            saveHistory(ActionTypes.COMPLETE);
-          }, 0);
-          
-          return true;
+          listElement.removeChild(listItem);
         }
-      } else if (action === 'outdent') {
-        // Google Docs outdent behavior for empty list items
         
-        // Save history before change
+        // Position cursor in new paragraph
+        const selection = window.getSelection();
+        const range = document.createRange();
+        range.setStart(newP, 0);
+        range.collapse(true);
+        selection.removeAllRanges();
+        selection.addRange(range);
+        
+        // Save after changes
         saveHistory(ActionTypes.COMPLETE);
-        
-        if (parentListItem && parentListItem.nodeName === 'LI') {
-          // We're in a nested list, move up one level
-          const grandparentList = parentListItem.parentNode;
-          
-          // Create a new list item at the parent level
-          const newLi = document.createElement('li');
-          newLi.innerHTML = '\u200B'; // Zero-width space
-          
-          // Insert after the parent list item
-          if (parentListItem.nextSibling) {
-            grandparentList.insertBefore(newLi, parentListItem.nextSibling);
-          } else {
-            grandparentList.appendChild(newLi);
-          }
-          
-          // Remove the empty list item
-          parentList.removeChild(listItem);
-          
-          // If this was the last item, remove the empty nested list
-          if (parentList.childNodes.length === 0) {
-            parentListItem.removeChild(parentList);
-          }
-          
-          // Set cursor in the new list item
-          setTimeout(() => {
-            const range = document.createRange();
-            const textNode = newLi.firstChild || newLi;
-            range.setStart(textNode, 0);
-            range.collapse(true);
-            
-            const selection = window.getSelection();
-            selection.removeAllRanges();
-            selection.addRange(range);
-            
-            saveHistory(ActionTypes.COMPLETE);
-          }, 0);
-          
-          return true;
-        } else {
-          // Top level - convert to paragraph
-          const p = document.createElement('p');
-          p.innerHTML = '\u200B'; // Zero-width space
-          
-          // Insert before the list
-          parentList.parentNode.insertBefore(p, parentList);
-          
-          // Remove the list item
-          parentList.removeChild(listItem);
-          
-          // If list is now empty, remove it
-          if (parentList.childNodes.length === 0) {
-            parentList.parentNode.removeChild(parentList);
-          }
-          
-          // Set cursor in the paragraph
-          setTimeout(() => {
-            const range = document.createRange();
-            const textNode = p.firstChild || p;
-            range.setStart(textNode, 0);
-            range.collapse(true);
-            
-            const selection = window.getSelection();
-            selection.removeAllRanges();
-            selection.addRange(range);
-            
-            saveHistory(ActionTypes.COMPLETE);
-          }, 0);
-          
-          return true;
-        }
+        return true;
       }
+      
+      // If in nested list, move up one level
+      const parentListItem = listElement.parentNode;
+      if (parentListItem && parentListItem.nodeName === 'LI') {
+        const parentList = parentListItem.parentNode;
+        
+        // Create a new list item at the parent level
+        const newLi = document.createElement('li');
+        newLi.innerHTML = listItem.innerHTML;
+        
+        // Insert after parent list item
+        const nextSibling = parentListItem.nextSibling;
+        if (nextSibling) {
+          parentList.insertBefore(newLi, nextSibling);
+        } else {
+          parentList.appendChild(newLi);
+        }
+        
+        // Remove original item
+        listElement.removeChild(listItem);
+        
+        // If original list is now empty, remove it
+        if (listElement.children.length === 0) {
+          parentListItem.removeChild(listElement);
+        }
+        
+        // Position cursor in new list item
+        const selection = window.getSelection();
+            const range = document.createRange();
+        range.setStart(newLi, 0);
+            range.collapse(true);
+            selection.removeAllRanges();
+            selection.addRange(range);
+        
+        // Save after changes
+        saveHistory(ActionTypes.COMPLETE);
+        return true;
+      }
+    } else if (action === 'exit') {
+      // Convert current list item to paragraph
+      const newP = document.createElement('p');
+      newP.innerHTML = listItem.innerHTML || '<br>'; // Add <br> if empty
+      
+      // Insert after list or parent list item
+      if (listElement.parentNode.nodeName === 'LI') {
+        const parentItem = listElement.parentNode;
+        const parentList = parentItem.parentNode;
+        const nextSibling = parentItem.nextSibling;
+        
+        if (nextSibling) {
+          parentList.insertBefore(newP, nextSibling);
+        } else {
+          parentList.parentNode.insertBefore(newP, parentList.nextSibling);
+        }
+      } else {
+        listElement.parentNode.insertBefore(newP, listElement.nextSibling);
+      }
+      
+      // Remove original item
+      listElement.removeChild(listItem);
+      
+      // If list is now empty, remove it
+      if (listElement.children.length === 0) {
+        listElement.parentNode.removeChild(listElement);
+      }
+      
+      // Position cursor in new paragraph
+      const selection = window.getSelection();
+          const range = document.createRange();
+      range.setStart(newP, 0);
+      range.collapse(true);
+          selection.removeAllRanges();
+          selection.addRange(range);
+          
+      // Save after changes
+      saveHistory(ActionTypes.COMPLETE);
+      return true;
     }
     
     return false;
   };
 
-  // Handle Tab and Shift+Tab for indentation (exactly like Google Docs)
+  // Handle indentation (Tab / Shift+Tab) within lists
   const handleIndent = (direction) => {
-    // Save history before making changes
-    saveHistory(ActionTypes.COMPLETE);
-    
-    const selection = window.getSelection();
-    if (!selection || selection.rangeCount === 0) return;
-    
-    const range = selection.getRangeAt(0);
-    const node = range.startContainer;
-
-    // Find the list item we're in
-    const listItem = getListItem(node);
-    if (!listItem) return;
-
-    // If it's an empty list item, handle special case
-    if (listItem.textContent.trim() === '' && direction === 'outdent') {
-      return handleEmptyListItem(listItem, 'outdent');
-    }
-    
-    if (direction === 'indent') {
-      // Google Docs indent behavior
-      const prevSibling = listItem.previousElementSibling;
-      
-      if (prevSibling) {
-        // Only indent if there's a previous item (Google Docs behavior)
-        const parentList = listItem.parentNode;
-        const isOrderedList = parentList.nodeName === 'OL';
-        
-        // Find or create a sublist in the previous sibling
-        let subList = Array.from(prevSibling.children).find(child => 
-          child.nodeName === (isOrderedList ? 'OL' : 'UL')
-        );
-        
-        if (!subList) {
-          // Create a new sublist with the same type
-          subList = document.createElement(isOrderedList ? 'OL' : 'UL');
-          prevSibling.appendChild(subList);
-        }
-        
-        // Save the cursor position info
-        const cursorOffset = range.startOffset;
-        let cursorNode = range.startContainer;
-        
-        // Move this item to the sublist
-        subList.appendChild(listItem);
-        
-        // Update the nested list styles
-        updateAllListItemStyles(parentList);
-        updateAllListItemStyles(subList);
-        
-        // Restore cursor position
-        setTimeout(() => {
-          try {
-            // Make sure the node still exists
-            if (!document.body.contains(cursorNode)) {
-              // Find first text node in the list item
-              const walker = document.createTreeWalker(
-                listItem, 
-                NodeFilter.SHOW_TEXT, 
-                null, 
-                false
-              );
-              
-              cursorNode = walker.nextNode() || listItem;
-              cursorOffset = 0;
-            }
-            
-            const newRange = document.createRange();
-            newRange.setStart(cursorNode, cursorOffset);
-            newRange.collapse(true);
-            
-            selection.removeAllRanges();
-            selection.addRange(newRange);
-            
-            // Save history after the change
-            saveHistory(ActionTypes.COMPLETE);
-          } catch (e) {
-            console.error("Error restoring selection after indent:", e);
-          }
-        }, 0);
-      }
-    } else if (direction === 'outdent') {
-      // Google Docs outdent behavior
-      const parentList = listItem.parentNode;
-      const parentLi = parentList.parentNode;
-      
-      if (parentLi && parentLi.nodeName === 'LI') {
-        // We're in a nested list, move up one level
-        const grandparentList = parentLi.parentNode;
-        
-        // Save cursor position info
-        const cursorOffset = range.startOffset;
-        let cursorNode = range.startContainer;
-        
-        // Insert the list item after its parent in the grandparent list
-        if (parentLi.nextSibling) {
-          grandparentList.insertBefore(listItem, parentLi.nextSibling);
-        } else {
-          grandparentList.appendChild(listItem);
-        }
-        
-        // If the sublist is now empty, remove it
-        if (parentList.childNodes.length === 0) {
-          parentLi.removeChild(parentList);
-        }
-        
-        // Update list styles
-        updateAllListItemStyles(grandparentList);
-        
-        // Restore cursor position
-        setTimeout(() => {
-          try {
-            // Make sure the node still exists
-            if (!document.body.contains(cursorNode)) {
-              // Find first text node in the list item
-              const walker = document.createTreeWalker(
-                listItem, 
-                NodeFilter.SHOW_TEXT, 
-                null, 
-                false
-              );
-              
-              cursorNode = walker.nextNode() || listItem;
-              cursorOffset = 0;
-            }
-            
-            const newRange = document.createRange();
-            newRange.setStart(cursorNode, cursorOffset);
-            newRange.collapse(true);
-            
-            selection.removeAllRanges();
-            selection.addRange(newRange);
-            
-            // Save history after the change
-            saveHistory(ActionTypes.COMPLETE);
-          } catch (e) {
-            console.error("Error restoring selection after outdent:", e);
-          }
-        }, 0);
-      } else {
-        // We're at the top level, convert to paragraph (Google Docs behavior)
-        const p = document.createElement('p');
-        p.innerHTML = listItem.innerHTML;
-        
-        // Replace list item with paragraph - put it before the list
-        parentList.parentNode.insertBefore(p, parentList);
-        parentList.removeChild(listItem);
-        
-        // If the list is now empty, remove it
-        if (parentList.childNodes.length === 0) {
-          parentList.parentNode.removeChild(parentList);
-        }
-        
-        // Focus on the new paragraph
-        setTimeout(() => {
-          const newRange = document.createRange();
-          newRange.selectNodeContents(p);
-          newRange.collapse(false); // Set cursor at end
-          
-          selection.removeAllRanges();
-          selection.addRange(newRange);
-          
-          // Save history after the change
-          saveHistory(ActionTypes.COMPLETE);
-        }, 0);
-      }
-    }
-  };
-
-  // Set up keyboard event handlers for TAB, BACKSPACE, ENTER and DELETE
-  useEffect(() => {
-    const handleKeyboardEvents = (e) => {
+    try {
       const selection = window.getSelection();
       if (!selection || selection.rangeCount === 0) return;
       
       const range = selection.getRangeAt(0);
-      let node = range.startContainer;
-
-      // Find if we're in a list item
-      const listItem = getListItem(node);
-      if (!listItem) return;
-
-      // Handle TAB key for indentation - exactly like Google Docs
-      if (e.key === 'Tab') {
-        e.preventDefault(); // Prevent default tab behavior
-        
-        if (e.shiftKey) {
-          // Shift+Tab: Outdent (Google Docs behavior)
-          handleIndent('outdent');
+      const startContainer = range.startContainer;
+      const endContainer = range.endContainer;
+      
+      // Save state before making changes
+      saveHistory(ActionTypes.COMPLETE);
+      
+      // Case 1: Cursor in a list item
+      const listItem = getListItem(startContainer);
+      
+      if (listItem) {
+        if (direction === 'indent') {
+          // Check if there's a previous list item to nest under
+          const prevLi = listItem.previousElementSibling;
+          if (!prevLi) return; // Can't indent first item
+          
+          // Find or create a sublist in the previous item
+          let sublist = Array.from(prevLi.children).find(child => 
+            child.nodeName === 'UL' || child.nodeName === 'OL'
+          );
+          
+          if (!sublist) {
+            // Create same type of list as parent
+            const parentList = listItem.parentNode;
+            sublist = document.createElement(parentList.nodeName);
+            prevLi.appendChild(sublist);
+          }
+          
+          // Move this item to the sublist
+          sublist.appendChild(listItem);
+          
+          // Update styles for all items in the hierarchy
+          updateAllListItemStyles(sublist);
+          
+          // Save history after changes
+          saveHistory(ActionTypes.COMPLETE);
+          return true;
+        } else if (direction === 'outdent') {
+          // Find parent list and list item
+          const parentList = listItem.parentNode;
+          if (!parentList) return false;
+          
+          // If already at top level, do nothing
+          const level = getListLevel(listItem);
+          if (level <= 1) return false;
+          
+          // Find grandparent list item
+          const grandparentLi = parentList.parentNode;
+          if (!grandparentLi || grandparentLi.nodeName !== 'LI') return false;
+          
+          // Find great-grandparent list
+          const greatGrandparentList = grandparentLi.parentNode;
+          if (!greatGrandparentList) return false;
+          
+          // Insert this item after grandparent list item
+          if (grandparentLi.nextSibling) {
+            greatGrandparentList.insertBefore(listItem, grandparentLi.nextSibling);
         } else {
-          // Tab: Indent (Google Docs behavior)
-          handleIndent('indent');
-        }
-      }
-      
-      // Enter key handling is now in EditorContent.jsx
-      
-      // Backspace at beginning is now in EditorContent.jsx
-    };
-    
-    document.addEventListener('keydown', handleKeyboardEvents);
-    
-    return () => {
-      document.removeEventListener('keydown', handleKeyboardEvents);
-    };
-  }, []);
-  
-  // Toggle or apply bullet list - 100% Google Docs style
-  const handleBulletStyle = (style = BULLET_STYLES.DISC) => {
-    // Save the style for future use
-    setLastBulletStyle(style);
-    
-    // Save history before changes
-    saveHistory(ActionTypes.COMPLETE);
-    
-    const selection = window.getSelection();
-    if (!selection || selection.rangeCount === 0) return;
-    
-    const range = selection.getRangeAt(0);
-    
-    // Check if we're already in a list
-    const listItem = getListItem(range.startContainer);
-    
-    if (listItem) {
-      const list = listItem.parentNode;
-      
-      if (list.nodeName === 'UL') {
-        // Store the bullet style as an attribute
-        list.setAttribute('data-bullet-style', style);
-        
-        // If already a bullet list, toggle it off (Google Docs behavior)
-        // Create a paragraph to replace the list item
-        const p = document.createElement('p');
-        p.innerHTML = listItem.innerHTML;
-        
-        // Replace list item with paragraph
-        list.parentNode.insertBefore(p, list);
-        list.removeChild(listItem);
-        
-        // If the list is now empty, remove it
-        if (list.childNodes.length === 0) {
-          list.parentNode.removeChild(list);
-        }
-        
-        // Set cursor in the paragraph
-        setTimeout(() => {
-          const newRange = document.createRange();
-          newRange.selectNodeContents(p);
-          newRange.collapse(false);
-          
-          selection.removeAllRanges();
-          selection.addRange(newRange);
-        }, 0);
-      } else if (list.nodeName === 'OL') {
-        // Convert from numbered to bulleted (Google Docs behavior)
-        const newList = document.createElement('ul');
-        
-        // Move all items from the OL to the UL
-        while (list.firstChild) {
-          newList.appendChild(list.firstChild);
-        }
-        
-        // Replace the OL with UL
-        list.parentNode.replaceChild(newList, list);
-        
-        // Apply correct styling
-        updateAllListItemStyles(newList);
-      }
-    } else {
-      // Create a new bullet list (Google Docs behavior)
-      
-      // Use execCommand to create the list - most reliable method
-      document.execCommand('insertUnorderedList');
-      
-      // Find the new list that was created
-      setTimeout(() => {
-        const newSelection = window.getSelection();
-        if (newSelection && newSelection.rangeCount > 0) {
-          const newListItem = getListItem(newSelection.getRangeAt(0).startContainer);
-          if (newListItem) {
-            const newList = newListItem.parentNode;
-            // Store the custom bullet style
-            newList.setAttribute('data-bullet-style', style);
-            // Apply proper styling
-            updateAllListItemStyles(newList);
+            greatGrandparentList.appendChild(listItem);
           }
-        }
-      }, 0);
-    }
-    
-    // Save history after changes
-    setTimeout(() => {
-      saveHistory(ActionTypes.COMPLETE);
-    }, 10);
-    
-    // Close any open menu
-    setBulletMenuAnchor(null);
-  };
-  
-  // Toggle or apply numbered list - 100% Google Docs style
-  const handleNumberedList = (style = NUMBER_STYLES.DECIMAL) => {
-    // Save the style for future use
-    setLastNumberStyle(style);
-    
-    // Save history before changes
-    saveHistory(ActionTypes.COMPLETE);
-    
-    const selection = window.getSelection();
-    if (!selection || selection.rangeCount === 0) return;
-    
-    const range = selection.getRangeAt(0);
-    
-    // Check if we're already in a list
-    const listItem = getListItem(range.startContainer);
-    
-    if (listItem) {
-      const list = listItem.parentNode;
-      
-      if (list.nodeName === 'OL') {
-        // If already a numbered list, toggle it off (Google Docs behavior)
-        // Create a paragraph to replace the list item
-        const p = document.createElement('p');
-        p.innerHTML = listItem.innerHTML;
-        
-        // Replace list item with paragraph
-        list.parentNode.insertBefore(p, list);
-        list.removeChild(listItem);
-        
-        // If the list is now empty, remove it
-        if (list.childNodes.length === 0) {
-          list.parentNode.removeChild(list);
-        }
-        
-        // Set cursor in the paragraph
-        setTimeout(() => {
-          const newRange = document.createRange();
-          newRange.selectNodeContents(p);
-          newRange.collapse(false);
           
-          selection.removeAllRanges();
-          selection.addRange(newRange);
-        }, 0);
-      } else if (list.nodeName === 'UL') {
-        // Convert from bulleted to numbered (Google Docs behavior)
-        const newList = document.createElement('ol');
-        
-        // Move all items from the UL to the OL
-        while (list.firstChild) {
-          newList.appendChild(list.firstChild);
-        }
-        
-        // Replace the UL with OL
-        list.parentNode.replaceChild(newList, list);
-        
-        // Apply correct styling
-        updateAllListItemStyles(newList);
-      }
-    } else {
-      // Create a new numbered list (Google Docs behavior)
-      
-      // Use execCommand to create the list - most reliable method
-      document.execCommand('insertOrderedList');
-      
-      // Find the new list that was created
-      setTimeout(() => {
-        const newSelection = window.getSelection();
-        if (newSelection && newSelection.rangeCount > 0) {
-          const newListItem = getListItem(newSelection.getRangeAt(0).startContainer);
-          if (newListItem) {
-            const newList = newListItem.parentNode;
-            // Store the custom bullet style
-            newList.setAttribute('data-bullet-style', style);
-            // Apply proper styling
-            updateAllListItemStyles(newList);
+          // If parent list is now empty, remove it
+          if (parentList.children.length === 0) {
+            grandparentLi.removeChild(parentList);
           }
+          
+          // Update styles for all items
+          updateAllListItemStyles(greatGrandparentList);
+          
+          // Save history after changes
+          saveHistory(ActionTypes.COMPLETE);
+          return true;
         }
-      }, 0);
+      }
+      
+      // Case 2: Multiple items selected (potentially spanning lists)
+      if (!range.collapsed) {
+        // Find all selected list items
+        const commonAncestor = range.commonAncestorContainer;
+        const allLists = commonAncestor.querySelectorAll('ul, ol');
+        
+        // Check if selection contains any list items
+        const containsListItems = Array.from(allLists).some(list => {
+          return Array.from(list.querySelectorAll('li')).some(li => {
+            return range.intersectsNode(li);
+          });
+        });
+        
+        if (containsListItems) {
+          // Implement selected range indentation logic
+          // This is more complex and requires identifying all selected list items
+          // For now, we'll handle single-item case only
+          console.log("Multi-item indentation not yet implemented");
+          return false;
+        }
+      }
+      
+      return false;
+    } catch (error) {
+      console.error("Error in list indentation:", error);
+      return false;
     }
-    
-    // Save history after changes
-    setTimeout(() => {
-      saveHistory(ActionTypes.COMPLETE);
-    }, 10);
-    
-    // Close any open menu
-    setNumberMenuAnchor(null);
   };
-  
-  // Handle auto-listing with markdown shortcuts (* or 1. + space)
+
+  // Set up keyboard event handlers
   useEffect(() => {
-    const handleInput = (e) => {
-      if (e.inputType === 'insertText' && e.data === ' ') {
+    const handleKeyboardEvents = (e) => {
+      if (e.key === 'Tab') {
         const selection = window.getSelection();
         if (!selection || selection.rangeCount === 0) return;
         
         const range = selection.getRangeAt(0);
-        const node = range.startContainer;
+        const listItem = getListItem(range.startContainer);
         
-        // Check if we're in a list already
-        if (getListItem(node)) return;
+        if (listItem) {
+          e.preventDefault(); // Prevent default Tab behavior
         
-        // Only check text nodes
-        if (node.nodeType !== Node.TEXT_NODE) return;
-        
-        const text = node.textContent;
-        const cursorPos = range.startOffset;
-        
-        // Check if we're right after potential list markers
-        if (cursorPos > 1) {
-          const segment = text.substring(0, cursorPos);
-          
-          // Check for bullet patterns
-          if (segment === '* ' || segment === '- ') {
-            e.preventDefault();
-            
-            // Save history before change
-            saveHistory(ActionTypes.COMPLETE);
-            
-            // Delete the marker text
-            const newRange = document.createRange();
-            newRange.setStart(node, 0);
-            newRange.setEnd(node, 2);
-            newRange.deleteContents();
-            
-            // Create bullet list
-            document.execCommand('insertUnorderedList');
-            
-            // Save history after change
-            setTimeout(() => {
-              saveHistory(ActionTypes.COMPLETE);
-            }, 10);
-            return;
-          }
-          
-          // Check for number patterns (e.g., "1. ")
-          const numberPattern = /^\d+\.\s$/;
-          if (numberPattern.test(segment)) {
-            e.preventDefault();
-            
-            // Save history before change
-            saveHistory(ActionTypes.COMPLETE);
-            
-            // Delete the marker text
-            const newRange = document.createRange();
-            newRange.setStart(node, 0);
-            newRange.setEnd(node, segment.length);
-            newRange.deleteContents();
-            
-            // Create numbered list
-            document.execCommand('insertOrderedList');
-            
-            // Save history after change
-            setTimeout(() => {
-              saveHistory(ActionTypes.COMPLETE);
-            }, 10);
-            return;
+        if (e.shiftKey) {
+            // Shift+Tab: outdent
+            handleIndent('outdent');
+          } else {
+            // Tab: indent
+            handleIndent('indent');
           }
         }
       }
     };
     
-    document.addEventListener('beforeinput', handleInput);
+    document.addEventListener('keydown', handleKeyboardEvents);
+    return () => document.removeEventListener('keydown', handleKeyboardEvents);
+  }, []);
+
+  // Handle bullet list button click
+  const handleBulletStyle = (style = BULLET_STYLES.DISC) => {
+    const selection = window.getSelection();
+    if (!selection || selection.rangeCount === 0) return;
     
-    return () => {
-      document.removeEventListener('beforeinput', handleInput);
+    // Save history before making changes
+    saveHistory(ActionTypes.COMPLETE);
+    
+    const range = selection.getRangeAt(0);
+    
+    // Find any existing list item
+    let listItem = getListItem(range.commonAncestorContainer);
+    
+    // If already in a list, change the list style
+    if (listItem) {
+      const parentList = listItem.parentNode;
+      if (parentList.nodeName === 'UL') {
+        // Apply the new style to the entire list
+        if (style === BULLET_STYLES.TRIANGLE) {
+          // Special case for triangle bullets
+          parentList.style.listStyleType = 'disclosure-closed';
+          parentList.classList.add('triangle-bullets');
+        } else {
+          // Standard CSS bullet styles
+          parentList.style.listStyleType = style;
+          parentList.classList.remove('triangle-bullets');
+        }
+        
+        // Store the style as a data attribute for persistence
+        parentList.setAttribute('data-bullet-style', style);
+      } else if (parentList.nodeName === 'OL') {
+        // Convert numbered list to bullet list
+        const newList = document.createElement('ul');
+        
+        // Apply the selected style
+        if (style === BULLET_STYLES.TRIANGLE) {
+          newList.style.listStyleType = 'disclosure-closed';
+          newList.classList.add('triangle-bullets');
+        } else {
+          newList.style.listStyleType = style;
+        }
+        
+        newList.setAttribute('data-bullet-style', style);
+        
+        // Move all items to the new list
+        while (parentList.firstChild) {
+          newList.appendChild(parentList.firstChild);
+        }
+        
+        // Replace the OL with UL
+        parentList.parentNode.replaceChild(newList, parentList);
+      }
+    } else {
+      // Not in a list - create a new bullet list
+      document.execCommand('insertUnorderedList');
+      
+      // Find the newly created list
+      listItem = getListItem(range.commonAncestorContainer);
+      if (listItem) {
+        const parentList = listItem.parentNode;
+        
+        // Apply the selected style
+        if (style === BULLET_STYLES.TRIANGLE) {
+          parentList.style.listStyleType = 'disclosure-closed';
+          parentList.classList.add('triangle-bullets');
+        } else {
+          parentList.style.listStyleType = style;
+        }
+        
+        parentList.setAttribute('data-bullet-style', style);
+      }
+    }
+    
+    // Save after changes
+    setTimeout(() => {
+      saveHistory(ActionTypes.COMPLETE);
+    }, 10);
+    
+    // Close any open menus
+    handleBulletMenuClose();
+  };
+
+  // Handle numbered list button click
+  const handleNumberedList = (style = NUMBER_STYLES.DECIMAL) => {
+    try {
+      // Save before making changes
+      saveHistory(ActionTypes.COMPLETE);
+      
+      const selection = window.getSelection();
+      if (!selection || selection.rangeCount === 0) return;
+      
+      const range = selection.getRangeAt(0);
+      
+      // Check if selection is already in a list
+      const listItem = getListItem(range.startContainer);
+      const contentArea = document.querySelector('[data-content-area="true"]');
+      
+      if (listItem) {
+        // Already in a list
+        const list = listItem.parentNode;
+        
+        // Check if it's already a numbered list
+        if (list.nodeName === 'OL') {
+          // Just update the style
+          switch (style) {
+            case NUMBER_STYLES.DECIMAL:
+              list.style.listStyleType = 'decimal';
+              break;
+            case NUMBER_STYLES.LOWER_ALPHA:
+              list.style.listStyleType = 'lower-alpha';
+              break;
+            case NUMBER_STYLES.UPPER_ALPHA:
+              list.style.listStyleType = 'upper-alpha';
+              break;
+            case NUMBER_STYLES.LOWER_ROMAN:
+              list.style.listStyleType = 'lower-roman';
+              break;
+            case NUMBER_STYLES.UPPER_ROMAN:
+              list.style.listStyleType = 'upper-roman';
+              break;
+          }
+        } else if (list.nodeName === 'UL') {
+          // Convert from bullet to numbered list
+          const newList = document.createElement('ol');
+          
+          // Set style
+          switch (style) {
+            case NUMBER_STYLES.DECIMAL:
+              newList.style.listStyleType = 'decimal';
+              break;
+            case NUMBER_STYLES.LOWER_ALPHA:
+              newList.style.listStyleType = 'lower-alpha';
+              break;
+            case NUMBER_STYLES.UPPER_ALPHA:
+              newList.style.listStyleType = 'upper-alpha';
+              break;
+            case NUMBER_STYLES.LOWER_ROMAN:
+              newList.style.listStyleType = 'lower-roman';
+              break;
+            case NUMBER_STYLES.UPPER_ROMAN:
+              newList.style.listStyleType = 'upper-roman';
+              break;
+          }
+          
+          // Copy all children
+          while (list.firstChild) {
+            newList.appendChild(list.firstChild);
+          }
+          
+          // Replace the old list
+          list.parentNode.replaceChild(newList, list);
+          
+          // Update styles for all items
+          updateAllListItemStyles(newList);
+        }
+      } else {
+        // Not in a list - create a new one
+        let targetNode;
+        
+        if (range.collapsed) {
+          // Cursor position - convert paragraph or line
+          targetNode = range.startContainer;
+          
+          // If it's a text node, get its parent
+          if (targetNode.nodeType === Node.TEXT_NODE) {
+            targetNode = targetNode.parentNode;
+          }
+          
+          // Find block-level element
+          while (targetNode && 
+                 !['P', 'DIV', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6'].includes(targetNode.nodeName) &&
+                 targetNode !== contentArea) {
+            targetNode = targetNode.parentNode;
+          }
+          
+          if (!targetNode || targetNode === contentArea) {
+            // Create a new paragraph if we couldn't find one
+            targetNode = document.createElement('p');
+            
+            // Get content at cursor and insert
+            const textContent = range.startContainer.textContent;
+            if (textContent) {
+              targetNode.textContent = textContent;
+              range.startContainer.textContent = '';
+            } else {
+              targetNode.innerHTML = '<br>';
+            }
+            
+            // Insert into content area
+            contentArea.appendChild(targetNode);
+          }
+          
+          // Create list and item
+          const ol = document.createElement('ol');
+          
+          // Set style
+          switch (style) {
+            case NUMBER_STYLES.DECIMAL:
+              ol.style.listStyleType = 'decimal';
+              break;
+            case NUMBER_STYLES.LOWER_ALPHA:
+              ol.style.listStyleType = 'lower-alpha';
+              break;
+            case NUMBER_STYLES.UPPER_ALPHA:
+              ol.style.listStyleType = 'upper-alpha';
+              break;
+            case NUMBER_STYLES.LOWER_ROMAN:
+              ol.style.listStyleType = 'lower-roman';
+              break;
+            case NUMBER_STYLES.UPPER_ROMAN:
+              ol.style.listStyleType = 'upper-roman';
+              break;
+          }
+          
+          const li = document.createElement('li');
+          li.innerHTML = targetNode.innerHTML;
+          
+          ol.appendChild(li);
+          targetNode.parentNode.replaceChild(ol, targetNode);
+          
+          // Update styles
+          updateAllListItemStyles(ol);
+          
+          // Place cursor in list item
+          const newRange = document.createRange();
+          newRange.setStart(li, 0);
+          newRange.collapse(true);
+          selection.removeAllRanges();
+          selection.addRange(newRange);
+        } else {
+          // Text selection - convert all paragraphs in selection
+          const fragment = range.extractContents();
+          
+          // Create a new list
+          const ol = document.createElement('ol');
+          
+          // Set style
+          switch (style) {
+            case NUMBER_STYLES.DECIMAL:
+              ol.style.listStyleType = 'decimal';
+              break;
+            case NUMBER_STYLES.LOWER_ALPHA:
+              ol.style.listStyleType = 'lower-alpha';
+              break;
+            case NUMBER_STYLES.UPPER_ALPHA:
+              ol.style.listStyleType = 'upper-alpha';
+              break;
+            case NUMBER_STYLES.LOWER_ROMAN:
+              ol.style.listStyleType = 'lower-roman';
+              break;
+            case NUMBER_STYLES.UPPER_ROMAN:
+              ol.style.listStyleType = 'upper-roman';
+              break;
+          }
+          
+          // Process the extracted content
+          let currentNode = fragment.firstChild;
+          
+          while (currentNode) {
+            const li = document.createElement('li');
+            
+            if (['P', 'DIV', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6'].includes(currentNode.nodeName)) {
+              // Block element - convert to list item
+              li.innerHTML = currentNode.innerHTML;
+              ol.appendChild(li);
+            } else if (currentNode.nodeType === Node.TEXT_NODE) {
+              // Text node - create list item with this text
+              li.textContent = currentNode.textContent;
+              ol.appendChild(li);
+            } else {
+              // Other element - just add as is
+              ol.appendChild(currentNode.cloneNode(true));
+            }
+            
+            currentNode = currentNode.nextSibling;
+          }
+          
+          // Insert the list
+          range.insertNode(ol);
+          
+          // Update styles
+          updateAllListItemStyles(ol);
+        }
+      }
+      
+      // Save after changes
+      saveHistory(ActionTypes.COMPLETE);
+    } catch (error) {
+      console.error("Error applying numbered list:", error);
+    }
+  };
+
+  // Auto-detection of list patterns in typed text
+  useEffect(() => {
+    const handleInput = (e) => {
+      if (!e.target.isContentEditable) return;
+      
+      const selection = window.getSelection();
+      if (!selection || selection.rangeCount === 0) return;
+      
+      const range = selection.getRangeAt(0);
+      
+      // Only process if in paragraph and at the beginning
+      if (range.startOffset !== 1) return;
+      
+      // Get current line
+      const node = range.startContainer;
+      if (node.nodeType !== Node.TEXT_NODE) return;
+      
+      const text = node.textContent;
+      if (!text) return;
+      
+      // Check for list marker patterns
+      const bulletPattern = /^[*\-] $/;
+      const numberPattern = /^1[.)] $/;
+      
+      if (bulletPattern.test(text)) {
+        // Save state before transformation
+        saveHistory(ActionTypes.COMPLETE);
+        
+        // Remove the bullet marker
+        node.textContent = '';
+        
+        // Find the parent paragraph/element
+        let paragraph = node.parentNode;
+        while (paragraph && !['P', 'DIV', 'LI'].includes(paragraph.nodeName)) {
+          paragraph = paragraph.parentNode;
+        }
+        
+        if (!paragraph) return;
+        
+        // Don't process if already in a list
+        if (paragraph.nodeName === 'LI') return;
+        
+        // Create bullet list
+        const ul = document.createElement('ul');
+        const li = document.createElement('li');
+        
+        // Copy contents except the marker
+        li.appendChild(document.createElement('br'));
+        
+        // Replace paragraph with list
+        ul.appendChild(li);
+        paragraph.parentNode.replaceChild(ul, paragraph);
+        
+        // Position cursor in list item
+        const newRange = document.createRange();
+        newRange.setStart(li, 0);
+        newRange.collapse(true);
+        selection.removeAllRanges();
+        selection.addRange(newRange);
+        
+        // Save history after changes
+        saveHistory(ActionTypes.COMPLETE);
+      } else if (numberPattern.test(text)) {
+        // Save state before transformation
+        saveHistory(ActionTypes.COMPLETE);
+        
+        // Remove the number marker
+        node.textContent = '';
+        
+        // Find the parent paragraph/element
+        let paragraph = node.parentNode;
+        while (paragraph && !['P', 'DIV', 'LI'].includes(paragraph.nodeName)) {
+          paragraph = paragraph.parentNode;
+        }
+        
+        if (!paragraph) return;
+        
+        // Don't process if already in a list
+        if (paragraph.nodeName === 'LI') return;
+        
+        // Create numbered list
+        const ol = document.createElement('ol');
+        const li = document.createElement('li');
+        
+        // Copy contents except the marker
+        li.appendChild(document.createElement('br'));
+        
+        // Replace paragraph with list
+        ol.appendChild(li);
+        paragraph.parentNode.replaceChild(ol, paragraph);
+        
+        // Position cursor in list item
+        const newRange = document.createRange();
+        newRange.setStart(li, 0);
+        newRange.collapse(true);
+        selection.removeAllRanges();
+        selection.addRange(newRange);
+        
+        // Save history after changes
+        saveHistory(ActionTypes.COMPLETE);
+      }
     };
-  }, [saveHistory]);
-  
+    
+    document.addEventListener('input', handleInput);
+    return () => document.removeEventListener('input', handleInput);
+  }, []);
+
   // Menu handlers
   const handleBulletMenuOpen = (event) => {
-    setBulletMenuAnchor(event.currentTarget);
+    setBulletMenuAnchorEl(event.currentTarget);
   };
   
   const handleBulletMenuClose = () => {
-    setBulletMenuAnchor(null);
+    setBulletMenuAnchorEl(null);
   };
   
   const handleNumberMenuOpen = (event) => {
-    setNumberMenuAnchor(event.currentTarget);
+    setNumberMenuAnchorEl(event.currentTarget);
   };
   
   const handleNumberMenuClose = () => {
-    setNumberMenuAnchor(null);
+    setNumberMenuAnchorEl(null);
   };
 
   return (
-    <Box sx={{ display: 'flex', alignItems: 'center', gap: '2px' }}>
-      {/* Bullet List Button */}
-      <Tooltip title="Bulleted List (Ctrl+Shift+8)">
+    <Box sx={{ display: 'flex', alignItems: 'center' }}>
+      <Box sx={{ position: 'relative' }}>
+      <Tooltip title="Bullet list">
         <IconButton
           size="small"
+            onClick={handleBulletMenuOpen}
           sx={{ padding: '4px' }}
-          onClick={() => handleBulletStyle(BULLET_STYLES.DISC)}
-          onMouseDown={(e) => e.preventDefault()}
-          data-list-control="bullet"
         >
           <FormatListBulleted sx={{ fontSize: '18px' }} />
+            <ArrowDropDown sx={{ fontSize: '14px', marginLeft: '-5px' }} />
         </IconButton>
       </Tooltip>
-
-      {/* Bullet Style Menu Button */}
-      <Tooltip title="Bullet Style">
-        <IconButton
-          size="small"
-          sx={{ padding: '2px', marginLeft: '-5px' }}
-          onClick={handleBulletMenuOpen}
-          onMouseDown={(e) => e.preventDefault()}
+        <Menu
+          anchorEl={bulletMenuAnchorEl}
+          open={Boolean(bulletMenuAnchorEl)}
+          onClose={handleBulletMenuClose}
         >
-          <ArrowDropDown sx={{ fontSize: '14px' }} />
-        </IconButton>
-      </Tooltip>
-
-      {/* Numbered List Button */}
-      <Tooltip title="Numbered List (Ctrl+Shift+7)">
+          <MenuItem onClick={() => handleBulletStyle(BULLET_STYLES.DISC)}>
+            <ListItemIcon>
+              <span style={{ fontSize: '18px' }}>•</span>
+            </ListItemIcon>
+            <ListItemText primary="Bullet (Dot)" />
+          </MenuItem>
+          <MenuItem onClick={() => handleBulletStyle(BULLET_STYLES.CIRCLE)}>
+            <ListItemIcon>
+              <span style={{ fontSize: '18px' }}>○</span>
+            </ListItemIcon>
+            <ListItemText primary="Circle" />
+          </MenuItem>
+          <MenuItem onClick={() => handleBulletStyle(BULLET_STYLES.SQUARE)}>
+            <ListItemIcon>
+              <span style={{ fontSize: '18px' }}>▪</span>
+            </ListItemIcon>
+            <ListItemText primary="Square" />
+          </MenuItem>
+          <MenuItem onClick={() => handleBulletStyle(BULLET_STYLES.TRIANGLE)}>
+            <ListItemIcon>
+              <span style={{ fontSize: '18px' }}>▶</span>
+            </ListItemIcon>
+            <ListItemText primary="Triangle" />
+          </MenuItem>
+        </Menu>
+      </Box>
+      
+      <Box sx={{ position: 'relative', ml: 0.5 }}>
+      <Tooltip title="Numbered list">
         <IconButton
           size="small"
-          sx={{ padding: '4px', marginLeft: '2px' }}
-          onClick={() => handleNumberedList(NUMBER_STYLES.DECIMAL)}
-          onMouseDown={(e) => e.preventDefault()}
-          data-list-control="number"
+            onClick={handleNumberMenuOpen}
+          sx={{ padding: '4px' }}
         >
           <FormatListNumbered sx={{ fontSize: '18px' }} />
+            <ArrowDropDown sx={{ fontSize: '14px', marginLeft: '-5px' }} />
         </IconButton>
       </Tooltip>
-
-      {/* Number Style Menu Button */}
-      <Tooltip title="Numbering Style">
-        <IconButton
-          size="small"
-          sx={{ padding: '2px', marginLeft: '-5px' }}
-          onClick={handleNumberMenuOpen}
-          onMouseDown={(e) => e.preventDefault()}
+        <Menu
+          anchorEl={numberMenuAnchorEl}
+          open={Boolean(numberMenuAnchorEl)}
+          onClose={handleNumberMenuClose}
         >
-          <ArrowDropDown sx={{ fontSize: '14px' }} />
-        </IconButton>
-      </Tooltip>
-
-      {/* Bullet Style Menu */}
-      <Menu
-        anchorEl={bulletMenuAnchor}
-        open={Boolean(bulletMenuAnchor)}
-        onClose={handleBulletMenuClose}
-      >
-        <MenuItem onClick={() => handleBulletStyle(BULLET_STYLES.DISC)}>
-          <ListItemIcon sx={{ minWidth: '30px' }}>•</ListItemIcon>
-          <ListItemText primary="Disc" />
-        </MenuItem>
-        <MenuItem onClick={() => handleBulletStyle(BULLET_STYLES.CIRCLE)}>
-          <ListItemIcon sx={{ minWidth: '30px' }}>○</ListItemIcon>
-          <ListItemText primary="Circle" />
-        </MenuItem>
-        <MenuItem onClick={() => handleBulletStyle(BULLET_STYLES.SQUARE)}>
-          <ListItemIcon sx={{ minWidth: '30px' }}>■</ListItemIcon>
-          <ListItemText primary="Square" />
-        </MenuItem>
-        <MenuItem onClick={() => handleBulletStyle(BULLET_STYLES.HOLLOW_CIRCLE)}>
-          <ListItemIcon sx={{ minWidth: '30px' }}>◦</ListItemIcon>
-          <ListItemText primary="Hollow Circle" />
-        </MenuItem>
-        <MenuItem onClick={() => handleBulletStyle(BULLET_STYLES.HOLLOW_SQUARE)}>
-          <ListItemIcon sx={{ minWidth: '30px' }}>▫</ListItemIcon>
-          <ListItemText primary="Hollow Square" />
-        </MenuItem>
+          <MenuItem onClick={() => handleNumberedList(NUMBER_STYLES.DECIMAL)}>
+            <ListItemIcon>
+              <span style={{ fontSize: '16px' }}>1.</span>
+            </ListItemIcon>
+            <ListItemText primary="1, 2, 3..." />
+          </MenuItem>
+          <MenuItem onClick={() => handleNumberedList(NUMBER_STYLES.LOWER_ALPHA)}>
+            <ListItemIcon>
+              <span style={{ fontSize: '16px' }}>a.</span>
+            </ListItemIcon>
+            <ListItemText primary="a, b, c..." />
+          </MenuItem>
+          <MenuItem onClick={() => handleNumberedList(NUMBER_STYLES.UPPER_ALPHA)}>
+            <ListItemIcon>
+              <span style={{ fontSize: '16px' }}>A.</span>
+            </ListItemIcon>
+            <ListItemText primary="A, B, C..." />
+          </MenuItem>
+          <MenuItem onClick={() => handleNumberedList(NUMBER_STYLES.LOWER_ROMAN)}>
+            <ListItemIcon>
+              <span style={{ fontSize: '16px' }}>i.</span>
+            </ListItemIcon>
+            <ListItemText primary="i, ii, iii..." />
+          </MenuItem>
+          <MenuItem onClick={() => handleNumberedList(NUMBER_STYLES.UPPER_ROMAN)}>
+            <ListItemIcon>
+              <span style={{ fontSize: '16px' }}>I.</span>
+            </ListItemIcon>
+            <ListItemText primary="I, II, III..." />
+          </MenuItem>
       </Menu>
-
-      {/* Number Style Menu */}
-      <Menu
-        anchorEl={numberMenuAnchor}
-        open={Boolean(numberMenuAnchor)}
-        onClose={handleNumberMenuClose}
-      >
-        <MenuItem onClick={() => handleNumberedList(NUMBER_STYLES.DECIMAL)}>
-          <ListItemIcon sx={{ minWidth: '30px' }}>1.</ListItemIcon>
-          <ListItemText primary="1, 2, 3..." />
-        </MenuItem>
-        <MenuItem onClick={() => handleNumberedList(NUMBER_STYLES.LOWER_ALPHA)}>
-          <ListItemIcon sx={{ minWidth: '30px' }}>a.</ListItemIcon>
-          <ListItemText primary="a, b, c..." />
-        </MenuItem>
-        <MenuItem onClick={() => handleNumberedList(NUMBER_STYLES.LOWER_ROMAN)}>
-          <ListItemIcon sx={{ minWidth: '30px' }}>i.</ListItemIcon>
-          <ListItemText primary="i, ii, iii..." />
-        </MenuItem>
-        <MenuItem onClick={() => handleNumberedList(NUMBER_STYLES.UPPER_ALPHA)}>
-          <ListItemIcon sx={{ minWidth: '30px' }}>A.</ListItemIcon>
-          <ListItemText primary="A, B, C..." />
-        </MenuItem>
-        <MenuItem onClick={() => handleNumberedList(NUMBER_STYLES.UPPER_ROMAN)}>
-          <ListItemIcon sx={{ minWidth: '30px' }}>I.</ListItemIcon>
-          <ListItemText primary="I, II, III..." />
-        </MenuItem>
-      </Menu>
+      </Box>
     </Box>
   );
 };

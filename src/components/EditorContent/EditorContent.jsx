@@ -3,8 +3,35 @@ import ZoomControl from '../ZoomControl/ZoomControl';
 import DebugSelection from "../DebugSelection";
 import { useComments } from '../../context/CommentContext';
 import { useEditorHistory } from '../../context/EditorHistoryContext';
-import { IconButton, Menu, MenuItem, Dialog, DialogTitle, DialogContent, DialogActions, Button, TextField, Select, FormControl, InputLabel, Typography, Box, Grid, Divider, Tooltip } from '@mui/material';
-import { ScreenRotation, FormatSize, ArrowDropDown, Settings } from '@mui/icons-material';
+import { 
+  IconButton, 
+  Menu, 
+  MenuItem, 
+  Dialog, 
+  DialogTitle, 
+  DialogContent, 
+  DialogActions, 
+  Button, 
+  TextField, 
+  Select, 
+  FormControl, 
+  InputLabel, 
+  Typography, 
+  Box, 
+  Grid, 
+  Divider, 
+  Tooltip, 
+  ListItemIcon, 
+  ListItemText 
+} from '@mui/material';
+import { 
+  Settings, 
+  CropPortrait, 
+  ViewArray, 
+  ScreenRotation, 
+  FormatSize, 
+  ArrowDropDown 
+} from '@mui/icons-material';
 
 // A4 dimensions in pixels (96 DPI)
 const INCH_TO_PX = 96;
@@ -94,6 +121,8 @@ const EditorContent = () => {
   const [tempCustomWidth, setTempCustomWidth] = useState(DEFAULT_PAGE_SIZE.width / INCH_TO_PX);
   const [tempCustomHeight, setTempCustomHeight] = useState(DEFAULT_PAGE_SIZE.height / INCH_TO_PX);
   const [tempUnit, setTempUnit] = useState('in');
+  
+  const [currentSettingsPage, setCurrentSettingsPage] = useState('1');
   
   const contentRefs = useRef({});
   const headerRefs = useRef({});
@@ -211,7 +240,7 @@ const EditorContent = () => {
       
       if (listItem) {
         // Handle list item indentation
-        handleListIndentation(listItem, e.shiftKey ? 'decrease' : 'increase');
+        handleListIndentation(listItem, e.shiftKey ? 'outdent' : 'indent');
       } else {
         // In regular text - move just the cursor by inserting a tab space
         // Google Docs uses ~0.5 inch (40px) tab stops
@@ -367,6 +396,22 @@ const EditorContent = () => {
     return null;
   };
 
+  // Helper function to find root list (for updating styles)
+  const findRootList = (listElement) => {
+    if (!listElement) return null;
+    
+    let current = listElement;
+    while (current.parentNode && 
+           current.parentNode.nodeName === 'LI' && 
+           current.parentNode.parentNode && 
+           (current.parentNode.parentNode.nodeName === 'UL' || 
+            current.parentNode.parentNode.nodeName === 'OL')) {
+      current = current.parentNode.parentNode;
+    }
+    
+    return current;
+  };
+
   // Add helper functions for table navigation
   const findParentWithTag = (node, tagName) => {
     while (node && node.nodeType === Node.ELEMENT_NODE) {
@@ -473,97 +518,69 @@ const EditorContent = () => {
 
   // Helper function for list indentation
   const handleListIndentation = (listItem, direction) => {
-    if (direction === 'increase') {
-      // Find previous list item to nest under
-      const prevItem = listItem.previousElementSibling;
-      if (!prevItem) return; // Can't nest if it's the first item
+    if (!listItem) return false;
+    
+    // Save before making changes
+    saveHistory(ActionTypes.COMPLETE);
+    
+    if (direction === 'indent') {
+      // Can't indent first item
+      const prevLi = listItem.previousElementSibling;
+      if (!prevLi) return false;
       
-      // Check if previous item already has a sublist
-      let subList = null;
-      for (const child of prevItem.children) {
-        if (child.nodeName === 'UL' || child.nodeName === 'OL') {
-          subList = child;
-          break;
-        }
-      }
+      // Find or create a sublist in the previous item
+      let sublist = Array.from(prevLi.children).find(child => 
+        child.nodeName === 'UL' || child.nodeName === 'OL'
+      );
       
-      // If no sublist exists, create one
-      if (!subList) {
-        // Match the list type of the parent
+      if (!sublist) {
+        // Create same type of list as parent
         const parentList = listItem.parentNode;
-        subList = document.createElement(parentList.nodeName);
-        prevItem.appendChild(subList);
+        sublist = document.createElement(parentList.nodeName);
+        prevLi.appendChild(sublist);
       }
       
       // Move this item to the sublist
-      subList.appendChild(listItem);
+      sublist.appendChild(listItem);
       
-      // Update list style if needed
-      updateListStyles(subList);
-    } else if (direction === 'decrease') {
-      // Check if we're in a nested list
+      // Update styles based on new nesting level
+      updateListStyles(sublist);
+      
+      // Save after changes
+      saveHistory(ActionTypes.COMPLETE);
+      return true;
+    } else if (direction === 'outdent') {
+      // Can't outdent if not nested
       const parentList = listItem.parentNode;
-      const grandParentListItem = parentList.parentNode;
+      if (!parentList) return false;
       
-      if (grandParentListItem && grandParentListItem.nodeName === 'LI') {
-        // Move this item after the parent list item
-        const greatGrandParentList = grandParentListItem.parentNode;
-        greatGrandParentList.insertBefore(listItem, grandParentListItem.nextSibling);
-        
-        // If sublist is now empty, remove it
-        if (parentList.children.length === 0) {
-          grandParentListItem.removeChild(parentList);
-        }
-        
-        // Update list styles
-        updateListStyles(greatGrandParentList);
+      const grandparent = parentList.parentNode;
+      if (!grandparent || grandparent.nodeName !== 'LI') return false;
+      
+      const greatGrandparentList = grandparent.parentNode;
+      if (!greatGrandparentList) return false;
+      
+      // Move this item after its grandparent
+      if (grandparent.nextSibling) {
+        greatGrandparentList.insertBefore(listItem, grandparent.nextSibling);
+      } else {
+        greatGrandparentList.appendChild(listItem);
       }
-    }
-  };
-
-  // Update list styles based on nesting level
-  const updateListStyles = (list) => {
-    // Get nesting level
-    let level = 0;
-    let parent = list.parentNode;
-    while (parent) {
-      if (parent.nodeName === 'UL' || parent.nodeName === 'OL') {
-        level++;
+      
+      // If parent list is now empty, remove it
+      if (parentList.children.length === 0) {
+        grandparent.removeChild(parentList);
       }
-      parent = parent.parentNode;
+      
+      // Update styles for all affected lists
+      updateListStyles(greatGrandparentList);
+      
+      // Save after changes
+      saveHistory(ActionTypes.COMPLETE);
+      return true;
     }
     
-    // Set appropriate bullet or number style based on level
-    const items = list.querySelectorAll('li');
-    items.forEach(item => {
-      if (list.nodeName === 'UL') {
-        // For bullet lists
-        switch (level % 3) {
-          case 0:
-            item.style.listStyleType = 'disc';
-            break;
-          case 1:
-            item.style.listStyleType = 'circle';
-            break;
-          case 2:
-            item.style.listStyleType = 'square';
-            break;
-        }
-      } else if (list.nodeName === 'OL') {
-        // For numbered lists
-        switch (level % 3) {
-          case 0:
-            item.style.listStyleType = 'decimal';
-            break;
-          case 1:
-            item.style.listStyleType = 'lower-alpha';
-            break;
-          case 2:
-            item.style.listStyleType = 'lower-roman';
-            break;
-        }
-      }
-    });
+    return false;
   };
 
   // Updated backspace handler for tabs and indentation
@@ -577,7 +594,7 @@ const EditorContent = () => {
     if (!selection.rangeCount) return false;
     
     const range = selection.getRangeAt(0);
-    
+      
     // Check if selection is at the start of the paragraph
     // This is tricky - we need to check if we're at position 0 of the first text node
     const textNodes = Array.from(paragraph.childNodes).filter(n => 
@@ -675,8 +692,7 @@ const EditorContent = () => {
     
     // Handle Enter key to maintain indentation
     if (e.key === 'Enter' && !e.shiftKey) {
-      handleEnterKey(e, pageNumber);
-      // Don't return here, let the default Enter handle basic paragraph creation
+      // This is handled elsewhere, so no specific code needed here
     }
     
     // Handle other special keys
@@ -699,6 +715,16 @@ const EditorContent = () => {
     setFooters(prev => ({
       ...prev,
       [pageNumber]: newContent
+    }));
+  };
+
+  // Handle content changes
+  const handleContentChange = (e, pageNumber) => {
+    // You need to implement this function based on your existing code
+    // It should update the page contents state and handle any other necessary effects
+    setPageContents(prev => ({
+      [pageNumber]: e.target.innerHTML,
+      ...prev,
     }));
   };
 
@@ -744,6 +770,10 @@ const EditorContent = () => {
       
       ul[data-list-level="3"] > li {
         list-style-type: square !important;
+      }
+      
+      ul[data-list-level="4"] > li {
+        list-style-type: disclosure-closed !important;
       }
       
       ol[data-list-level="1"] > li {
@@ -848,920 +878,416 @@ const EditorContent = () => {
     };
   }, [saveSelectionRange]);
 
-  const handleListSpecialKeys = (e, listItem) => {
-    if (!listItem) return false;
-    
-    const selection = window.getSelection();
-    if (!selection || selection.rangeCount === 0) return false;
-    
-    const range = selection.getRangeAt(0);
-    
-    // ENTER KEY HANDLING - Exactly like Google Docs
-    if (e.key === 'Enter' && !e.shiftKey) {
-      // Save history before change
-      saveHistory(ActionTypes.COMPLETE);
-      
-      // Check if list item is empty
-      if (listItem.textContent.trim() === '') {
-        e.preventDefault();
-        
-        // Get the parent list
-        const parentList = listItem.parentNode;
-        const parentLi = parentList.parentNode;
-        const isNested = parentLi && parentLi.nodeName === 'LI';
-        
-        if (isNested) {
-          // In nested list, move up a level (Google Docs behavior)
-          const grandparentList = parentLi.parentNode;
-          
-          // Create a new list item
-          const newLi = document.createElement('li');
-          newLi.innerHTML = '\u200B'; // Zero-width space
-          
-          // Insert after parent list item
-          if (parentLi.nextSibling) {
-            grandparentList.insertBefore(newLi, parentLi.nextSibling);
-          } else {
-            grandparentList.appendChild(newLi);
-          }
-          
-          // Remove the empty list item
-          parentList.removeChild(listItem);
-          
-          // If this was the last item, remove empty list
-          if (parentList.childNodes.length === 0) {
-            parentLi.removeChild(parentList);
-          }
-          
-          // Set cursor in the new list item
-          const newRange = document.createRange();
-          const textNode = newLi.firstChild || newLi;
-          newRange.setStart(textNode, 0);
-          newRange.collapse(true);
-          selection.removeAllRanges();
-          selection.addRange(newRange);
-          
-          // Save history after change
-          setTimeout(() => {
-            saveHistory(ActionTypes.COMPLETE);
-          }, 0);
-        } else {
-          // Convert to paragraph (exit list) - exactly like Google Docs
-          const p = document.createElement('p');
-          p.innerHTML = '\u200B'; // Zero-width space
-          
-          // Insert after list - Google Docs behavior
-          if (parentList.nextSibling) {
-            parentList.parentNode.insertBefore(p, parentList.nextSibling);
-          } else {
-            parentList.parentNode.appendChild(p);
-          }
-          
-          // Remove list item
-          parentList.removeChild(listItem);
-          
-          // If list is now empty, remove it
-          if (parentList.childNodes.length === 0) {
-            parentList.parentNode.removeChild(parentList);
-          }
-          
-          // Set cursor in the new paragraph
-          setTimeout(() => {
-            const newRange = document.createRange();
-            const textNode = p.firstChild || p;
-            newRange.setStart(textNode, 0);
-            newRange.collapse(true);
-            
-            selection.removeAllRanges();
-            selection.addRange(newRange);
-            
-            // Save history after change
-            saveHistory(ActionTypes.COMPLETE);
-          }, 0);
-        }
-      }
-    }
-    
-    // BACKSPACE KEY HANDLING - Exactly like Google Docs
-    if (e.key === 'Backspace' && range.collapsed) {
-      // Check if list item is empty (just the bullet)
-      if (listItem.textContent.trim() === '') {
-        e.preventDefault();
-        
-        // Save history before change
-        saveHistory(ActionTypes.COMPLETE);
-        
-        const parentList = listItem.parentNode;
-        
-        // IMPORTANT: Get the position of the list item in the document
-        // before removing it, so we can place our paragraph in the exact same spot
-        const listItemRect = listItem.getBoundingClientRect();
-        
-        // Create a replacement paragraph at the exact position where the list item was
-        const p = document.createElement('p');
-        p.innerHTML = '\u200B'; // Zero-width space for cursor position
-        p.style.margin = '0'; // Match Google Docs margins
-        p.style.padding = '0';
-        p.style.minHeight = '1.5em'; // Ensure the paragraph has height
-        
-        // Insert the paragraph BEFORE removing the list item
-        parentList.insertBefore(p, listItem);
-        parentList.removeChild(listItem);
-        
-        // If list is now empty, remove it but keep the paragraph
-        if (parentList.childNodes.length === 0) {
-          parentList.parentNode.removeChild(parentList);
-        }
-        
-        // Force a layout recalculation to ensure the paragraph stays
-        void p.offsetHeight;
-        
-        // Set cursor in the new paragraph
-        setTimeout(() => {
-          try {
-            const newRange = document.createRange();
-            const textNode = p.firstChild || p;
-            newRange.setStart(textNode, 0);
-            newRange.collapse(true);
-            
-            const selection = window.getSelection();
-            selection.removeAllRanges();
-            selection.addRange(newRange);
-            
-            // Focus the paragraph
-            p.focus();
-            
-            // Save history after change
-            saveHistory(ActionTypes.COMPLETE);
-          } catch (error) {
-            console.error('Error setting cursor position:', error);
-          }
-        }, 0);
-        
-        return true;
-      }
-      
-      // Handle regular Backspace at start of non-empty list item...
-      // [rest of existing backspace code]
+  // Add these helper functions if they don't already exist
+  const isAtStartOfNode = (range, node) => {
+    if (range.startContainer === node) {
+      return range.startOffset === 0;
+    } else if (range.startContainer.nodeType === Node.TEXT_NODE && 
+               range.startContainer.parentNode === node) {
+      return range.startOffset === 0 && 
+             (!range.startContainer.previousSibling || 
+              (range.startContainer.previousSibling.nodeType === Node.ELEMENT_NODE && 
+               range.startContainer.previousSibling.tagName === 'BR'));
     }
     
     return false;
   };
 
-  // Update handleSpecialKeys to handle Enter key indentation inheritance
-  const handleSpecialKeys = (e, pageNumber) => {
-    // Handle Tab key
-    if (e.key === 'Tab') {
-      handleTabKey(e, pageNumber);
-      return;
+  const isAtEndOfNode = (range, node) => {
+    if (range.endContainer === node) {
+      return range.endOffset === node.childNodes.length;
+    } else if (range.endContainer.nodeType === Node.TEXT_NODE && 
+               range.endContainer.parentNode === node) {
+      return range.endOffset === range.endContainer.length && 
+             !range.endContainer.nextSibling;
     }
     
-    // Handle Enter key with indentation inheritance
-    if (e.key === 'Enter' && !e.shiftKey) {
+    return false;
+  };
+
+  const getListLevel = (listItem) => {
+    if (!listItem || listItem.nodeName !== 'LI') return 0;
+    
+    let level = 1;
+    let parent = listItem.parentNode;
+    
+    while (parent) {
+      if ((parent.nodeName === 'UL' || parent.nodeName === 'OL') && 
+          parent.parentNode && 
+          parent.parentNode.nodeName === 'LI') {
+        level++;
+        parent = parent.parentNode.parentNode;
+      } else {
+        break;
+      }
+    }
+    
+    return level;
+  };
+
+  const createNewListItem = (listItem, preserveFormat = true) => {
+    if (!listItem || listItem.nodeName !== 'LI') return null;
+    
+    // Save history before creating new item
+    saveHistory(ActionTypes.COMPLETE);
+    
+    const parentList = listItem.parentNode;
+    const newLi = document.createElement('li');
+    
+    // If we want to preserve formatting, copy styles
+    if (preserveFormat) {
+      // Copy style attributes but not content
+      const computedStyle = window.getComputedStyle(listItem);
+      
+      // Apply basic text formatting styles
+      ['font-family', 'font-size', 'font-weight', 'font-style', 'color', 'text-decoration']
+        .forEach(style => {
+          if (computedStyle[style]) {
+            newLi.style[style] = computedStyle[style];
+          }
+        });
+    }
+    
+    // Add a BR to ensure the list item has height
+    newLi.appendChild(document.createElement('br'));
+    
+    // Insert after current list item
+    if (listItem.nextSibling) {
+      parentList.insertBefore(newLi, listItem.nextSibling);
+    } else {
+      parentList.appendChild(newLi);
+    }
+    
+    // Move cursor to new list item
+    const selection = window.getSelection();
+    const range = document.createRange();
+    range.setStart(newLi, 0);
+    range.collapse(true);
+    selection.removeAllRanges();
+    selection.addRange(range);
+    
+    return newLi;
+  };
+
+  // Enhanced implementation of handleEmptyListItem for Google Docs-like behavior
+  const handleEmptyListItem = (listItem, action = 'auto') => {
+    if (!listItem) return false;
+    
+    // Save state before making changes (for undo/redo)
+    saveHistory(ActionTypes.COMPLETE);
+    
+    const parentList = listItem.parentNode;
+    if (!parentList) return false;
+    
+    // Get the previous list item
+    const prevListItem = listItem.previousElementSibling;
+    
+    // Google Docs behavior: If there's a previous list item and this is empty
+    if (prevListItem && action === 'auto') {
+      // Remove the current empty list item
+      parentList.removeChild(listItem);
+      
+      // Place cursor at the end of the previous list item's content
       const selection = window.getSelection();
-      if (!selection.rangeCount) return;
+      const range = document.createRange();
       
-      const range = selection.getRangeAt(0);
-      if (!range.collapsed) return; // Let default behavior handle selections
+      // Find the last text node or element to place cursor properly
+      const findLastTextNodeOrElement = (node) => {
+        if (!node) return null;
+        
+        // Go through children in reverse order to find last text node
+        if (node.childNodes.length > 0) {
+          for (let i = node.childNodes.length - 1; i >= 0; i--) {
+            const result = findLastTextNodeOrElement(node.childNodes[i]);
+            if (result) return result;
+          }
+        }
+        
+        // If we're a text node with content, return this node
+        if (node.nodeType === Node.TEXT_NODE) {
+          return { node: node, offset: node.textContent.length };
+        }
+        
+        // If we're an element node (but not BR), return position after it
+        if (node.nodeType === Node.ELEMENT_NODE && node.nodeName !== 'BR') {
+          return { node: node.parentNode, offset: Array.from(node.parentNode.childNodes).indexOf(node) + 1 };
+        }
+        
+        // If we're a BR element, return position before it
+        if (node.nodeType === Node.ELEMENT_NODE && node.nodeName === 'BR') {
+          return { node: node.parentNode, offset: Array.from(node.parentNode.childNodes).indexOf(node) };
+        }
+        
+        return null;
+      };
       
-      let container = range.commonAncestorContainer;
-      if (container.nodeType === Node.TEXT_NODE) {
-        container = container.parentNode;
+      let cursorPosition = findLastTextNodeOrElement(prevListItem);
+      
+      // If we couldn't find a good position, create one
+      if (!cursorPosition) {
+        if (prevListItem.lastChild && prevListItem.lastChild.nodeName === 'BR') {
+          // Remove BR element if it's the last child
+          const brElem = prevListItem.lastChild;
+          cursorPosition = { node: prevListItem, offset: Array.from(prevListItem.childNodes).indexOf(brElem) };
+        } else {
+          // Just place cursor at the end of the list item
+          cursorPosition = { node: prevListItem, offset: prevListItem.childNodes.length };
+        }
       }
       
-      // Find the current paragraph
-      const paragraph = findParagraphNode(container);
-      if (!paragraph) return;
+      // Set the cursor at the found position
+      range.setStart(cursorPosition.node, cursorPosition.offset);
+      range.collapse(true);
+      selection.removeAllRanges();
+      selection.addRange(range);
       
-      // Get current indentation
-      const style = window.getComputedStyle(paragraph);
-      const currentIndent = style.marginLeft;
+      // Make sure to update the content area
+      const contentArea = findContentArea(prevListItem);
+      if (contentArea) {
+        const pageNumber = parseInt(contentArea.getAttribute('data-page')) || 1;
+        handleContentChange({ target: contentArea }, pageNumber);
+      }
       
-      if (currentIndent && currentIndent !== '0px') {
-        // Let browser handle Enter key first
-        setTimeout(() => {
-          // Now find the new paragraph
-          const newSelection = window.getSelection();
-          if (!newSelection.rangeCount) return;
+      // Save after changes (for redo)
+      setTimeout(() => {
+        saveHistory(ActionTypes.COMPLETE);
+      }, 10);
+      
+      return true;
+    }
+    
+    // Rest of your existing function for other cases (can keep as is)
+    // ...
+    
+    return false;
+  };
+
+  // REPLACE the existing function body with this enhanced implementation
+  const updateListStyles = (list) => {
+    if (!list || (list.nodeName !== 'UL' && list.nodeName !== 'OL')) return;
+    
+    // Recursively process the list and all nested lists
+    const processListRecursively = (listElement, level = 1) => {
+      if (!listElement) return;
+      
+      // Set data-list-level attribute on the list
+      listElement.setAttribute('data-list-level', level);
+      
+      // Process each list item
+      Array.from(listElement.children).forEach(li => {
+        if (li.nodeName !== 'LI') return;
+        
+        // Set data-list-level attribute on the list item
+        li.setAttribute('data-list-level', level);
+        
+        // Set appropriate bullet style based on level
+        if (listElement.nodeName === 'UL') {
+          // Check if this list has a manually chosen style
+          const customStyle = listElement.getAttribute('data-bullet-style');
           
-          const newRange = newSelection.getRangeAt(0);
-          let newContainer = newRange.commonAncestorContainer;
-          if (newContainer.nodeType === Node.TEXT_NODE) {
-            newContainer = newContainer.parentNode;
-          }
-          
-          const newParagraph = findParagraphNode(newContainer);
-          
-          if (newParagraph && newParagraph !== paragraph) {
-            // Apply the same indentation to the new paragraph
-            newParagraph.style.marginLeft = currentIndent;
+          if (customStyle) {
+            // Use the manually selected style (keeps user selection)
+            if (customStyle === 'triangle') {
+              listElement.style.listStyleType = 'disclosure-closed';
+              listElement.classList.add('triangle-bullets');
+            } else {
+              listElement.style.listStyleType = customStyle;
+              listElement.classList.remove('triangle-bullets');
+            }
+          } else {
+            // No manual selection - apply default Google Docs style for this level
+            listElement.classList.remove('triangle-bullets');
             
-            // Update content
-            const contentArea = findContentArea(newParagraph);
-            if (contentArea) {
-              handleContentChange({ target: contentArea }, pageNumber);
+            switch (level % 4) {
+              case 1: // Level 1
+                listElement.style.listStyleType = 'disc';
+                break;
+              case 2: // Level 2
+                listElement.style.listStyleType = 'circle';
+                break;
+              case 3: // Level 3
+                listElement.style.listStyleType = 'square';
+                break;
+              case 0: // Level 4
+                listElement.style.listStyleType = 'disclosure-closed';
+                listElement.classList.add('triangle-bullets');
+                break;
             }
           }
-        }, 0);
-      }
-    }
-    
-    // Handle backspace at start of paragraph or indentation
-    if (e.key === 'Backspace') {
-      const selection = window.getSelection();
-      if (!selection.rangeCount) return;
-      
-      const range = selection.getRangeAt(0);
-      if (!range.collapsed) return; // Let default behavior handle selections
-      
-      if (range.startOffset === 0) {
-        let container = range.commonAncestorContainer;
-        if (container.nodeType === Node.TEXT_NODE) {
-          container = container.parentNode;
-        }
-        
-        // Check if this is at the start of an indented paragraph
-        if (handleBackspaceIndent(e, container)) {
-          return; // Handled by our custom function
-        }
-        
-        // Current page handling for joining pages
-        if (pageNumber > 1) {
-          // Existing code for joining pages...
-        }
-      }
-    }
-    
-    // Handle Delete key to join lines
-    if (e.key === 'Delete') {
-      const selection = window.getSelection();
-      if (!selection.rangeCount) return;
-      
-      const range = selection.getRangeAt(0);
-      if (!range.collapsed) return; // Let default behavior handle selections
-      
-      let container = range.commonAncestorContainer;
-      if (container.nodeType === Node.TEXT_NODE) {
-        container = container.parentNode;
-        
-        // Check if we're at the end of a text node (will join with next line)
-        if (range.startOffset === container.textContent.length) {
-          // Save history before changes
-          saveHistory(ActionTypes.COMPLETE);
+        } else if (listElement.nodeName === 'OL') {
+          // Handle numbered list styles at different levels
+          const customStyle = listElement.getAttribute('data-number-style');
           
-          // Let default behavior happen, then save history again
-          setTimeout(() => {
-            saveHistory(ActionTypes.COMPLETE);
-          }, 10);
+          if (customStyle) {
+            listElement.style.listStyleType = customStyle;
+          } else {
+            switch (level % 5) {
+              case 1:
+                listElement.style.listStyleType = 'decimal';
+                break;
+              case 2:
+                listElement.style.listStyleType = 'lower-alpha';
+                break;
+              case 3:
+                listElement.style.listStyleType = 'lower-roman';
+                break;
+              case 4:
+                listElement.style.listStyleType = 'upper-alpha';
+                break;
+              case 0:
+                listElement.style.listStyleType = 'upper-roman';
+                break;
+            }
+          }
         }
-      }
-    }
-    
-    // Continue with other special key handling (keep existing code)
-    // ...
-  };
-
-  useEffect(() => {
-    // Add styles for hyperlinks
-    const style = document.createElement('style');
-    style.textContent = `
-      .editor-hyperlink {
-        color: #0563c1 !important;
-        text-decoration: underline !important;
-        cursor: pointer !important;
-      }
-      .editor-hyperlink:visited {
-        color: #954f72 !important; /* Purple color for visited links */
-      }
-      
-      /* Add some styles for the hyperlink tooltip container */
-      #hyperlink-tooltip-container {
-        position: absolute;
-        top: 0;
-        left: 0;
-        width: 0;
-        height: 0;
-        z-index: 10000;
-        pointer-events: none;
-      }
-      #hyperlink-tooltip-container > * {
-        pointer-events: auto;
-      }
-    `;
-    document.head.appendChild(style);
-    
-    return () => {
-      document.head.removeChild(style);
-    };
-  }, []);
-
-  useEffect(() => {
-    // Add keyboard shortcuts for indentation
-    const handleGlobalKeydown = (e) => {
-      // Ctrl+] for increase indent
-      if (e.ctrlKey && e.key === ']') {
-        e.preventDefault();
-        handleToolbarIndent('increase');
-      }
-      
-      // Ctrl+[ for decrease indent
-      if (e.ctrlKey && e.key === '[') {
-        e.preventDefault();
-        handleToolbarIndent('decrease');
-      }
-      
-      // Ctrl+Z for undo is handled by the EditorHistoryContext
-      // Ctrl+Y for redo is handled by the EditorHistoryContext
-      
-      // Rest of your keyboard shortcuts...
+        
+        // Find nested lists within this li and process them
+        const nestedLists = li.querySelectorAll(':scope > ul, :scope > ol');
+        nestedLists.forEach(nestedList => {
+          processListRecursively(nestedList, level + 1);
+        });
+      });
     };
     
-    document.addEventListener('keydown', handleGlobalKeydown);
+    processListRecursively(list);
     
-    return () => {
-      document.removeEventListener('keydown', handleGlobalKeydown);
-    };
-  }, []);
-
-  // Add these handler functions BEFORE the PageSettingsButton and PageSettingsMenu components
-
-  const handleOrientationChange = (newOrientation) => {
-    // Save history before change
-    saveHistory(ActionTypes.COMPLETE);
-    
-    // Update orientation state
-    setPageOrientations(prev => ({
-      ...prev,
-      [selectedPage]: newOrientation
-    }));
-    
-    // Immediately update the page visually
-    setTimeout(() => {
-      const pageElement = document.querySelector(`[data-page="${selectedPage}"]`);
-      if (pageElement) {
-        const currentPageSize = pageSizes[selectedPage] || DEFAULT_PAGE_SIZE.name;
-        let width, height;
-        
-        if (currentPageSize === 'CUSTOM') {
-          const customSize = customPageSizes[selectedPage] || {
-            width: DEFAULT_PAGE_SIZE.width,
-            height: DEFAULT_PAGE_SIZE.height
-          };
-          width = customSize.width;
-          height = customSize.height;
-        } else {
-          const dimensions = PAGE_SIZES[currentPageSize] || DEFAULT_PAGE_SIZE;
-          width = dimensions.width;
-          height = dimensions.height;
-        }
-        
-        // Swap width and height for landscape
-        if (newOrientation === 'landscape') {
-          [width, height] = [height, width];
-        }
-        
-        // Apply dimensions to the page
-        pageElement.style.width = getZoomedSize(width);
-        pageElement.style.height = getZoomedSize(height);
-        
-        // Force layout recalculation
-        void pageElement.offsetHeight;
-        
-        // Update content to fit new dimensions
-        const contentArea = pageElement.querySelector('[data-content-area="true"]');
-        if (contentArea) {
-          contentArea.style.width = getZoomedSize(width - margins.left - margins.right);
-          handleContentChange({ target: contentArea }, selectedPage);
-        }
-      }
-    }, 0);
-    
-    // Save history after change
-    setTimeout(() => {
-      saveHistory(ActionTypes.COMPLETE);
-    }, 100);
-  };
-
-  // ADD THIS MISSING FUNCTION
-  const handlePageSizeChange = (event) => {
-    const newSize = event.target.value;
-    setTempPageSize(newSize);
-    
-    // Update custom dimensions to match the selected preset
-    if (newSize !== 'CUSTOM') {
-      const dimensions = PAGE_SIZES[newSize] || DEFAULT_PAGE_SIZE;
-      setTempCustomWidth(dimensions.width / INCH_TO_PX);
-      setTempCustomHeight(dimensions.height / INCH_TO_PX);
+    // Also find the root list to update all levels in hierarchy
+    const rootList = findRootList(list);
+    if (rootList && rootList !== list) {
+      processListRecursively(rootList, 1);
     }
   };
 
-  const handleCustomSizeChange = (dimension, value) => {
-    if (dimension === 'width') {
-      setTempCustomWidth(value);
-    } else {
-      setTempCustomHeight(value);
-    }
-    // If changing custom dimensions, make sure we're set to CUSTOM
-    setTempPageSize('CUSTOM');
-  };
-
-  const handleUnitChange = (event) => {
-    const newUnit = event.target.value;
-    const oldUnit = tempUnit;
-    let conversionFactor = 1;
+  // If this function doesn't exist, add it
+  const handleListEnterKey = (e) => {
+    const selection = window.getSelection();
+    if (!selection || selection.rangeCount === 0) return false;
     
-    // Convert dimensions based on unit change
-    if (oldUnit === 'in' && newUnit === 'cm') {
-      conversionFactor = 2.54;
-    } else if (oldUnit === 'in' && newUnit === 'mm') {
-      conversionFactor = 25.4;
-    } else if (oldUnit === 'cm' && newUnit === 'in') {
-      conversionFactor = 1/2.54;
-    } else if (oldUnit === 'cm' && newUnit === 'mm') {
-      conversionFactor = 10;
-    } else if (oldUnit === 'mm' && newUnit === 'in') {
-      conversionFactor = 1/25.4;
-    } else if (oldUnit === 'mm' && newUnit === 'cm') {
-      conversionFactor = 0.1;
-    }
+    const range = selection.getRangeAt(0);
     
-    setTempCustomWidth(prev => prev * conversionFactor);
-    setTempCustomHeight(prev => prev * conversionFactor);
-    setTempUnit(newUnit);
-  };
-
-  // Page settings dialog functions
-  const handlePageSettingsClick = (e, pageNumber) => {
-    setSelectedPage(pageNumber);
-    setPageSettingsAnchorEl(e.currentTarget);
+    // Check if we're in a list
+    const listItemNode = findParentWithTag(range.startContainer, 'LI');
+    if (!listItemNode) return false;
     
-    // Initialize temp values based on current page settings
-    const orientation = pageOrientations[pageNumber] || DEFAULT_ORIENTATION;
-    const pageSize = pageSizes[pageNumber] || DEFAULT_PAGE_SIZE.name;
-    setTempOrientation(orientation);
-    setTempPageSize(pageSize);
+    return handleListSpecialKeys(e, listItemNode);
+  };
+
+  // Make sure this call is added to handleSpecialKeys if not already there
+  const handleSpecialKeys = (e, pageNumber) => {
+    // Make sure there's a section that checks for list items
+    // This might already exist in your code
     
-    if (pageSize === 'CUSTOM') {
-      const customSize = customPageSizes[pageNumber] || {
-        width: DEFAULT_PAGE_SIZE.width,
-        height: DEFAULT_PAGE_SIZE.height
-      };
-      setTempCustomWidth(customSize.width / INCH_TO_PX);
-      setTempCustomHeight(customSize.height / INCH_TO_PX);
-    } else {
-      const dimensions = PAGE_SIZES[pageSize] || DEFAULT_PAGE_SIZE;
-      setTempCustomWidth(dimensions.width / INCH_TO_PX);
-      setTempCustomHeight(dimensions.height / INCH_TO_PX);
-    }
-  };
-
-  const handlePageSettingsClose = () => {
-    setPageSettingsAnchorEl(null);
-  };
-
-  const handleOpenPageSettingsDialog = () => {
-    setPageSettingsDialogOpen(true);
-    handlePageSettingsClose();
-  };
-
-  const handleClosePageSettingsDialog = (event) => {
-    // Only close if explicitly closed via buttons, not by clicking outside
-    if (event && event.target && event.target.getAttribute('role') === 'presentation') {
-      // Clicked outside, but don't close if we're interacting with inputs
-      const activeElement = document.activeElement;
-      if (activeElement && 
-          (activeElement.tagName === 'INPUT' || 
-           activeElement.tagName === 'SELECT' ||
-           activeElement.tagName === 'BUTTON')) {
-        return;
+    // Check for list item and delegate to list handler
+    const selection = window.getSelection();
+    if (selection && selection.rangeCount > 0) {
+      const range = selection.getRangeAt(0);
+      const listItem = findParentWithTag(range.startContainer, 'LI');
+      
+      if (listItem) {
+        const handled = handleListSpecialKeys(e, listItem);
+        if (handled) return true;
       }
     }
     
-    setPageSettingsDialogOpen(false);
+    // Rest of your existing code
   };
 
-  const applyPageSettings = () => {
-    // Save history before changes
-    saveHistory(ActionTypes.COMPLETE);
-    
-    // Calculate dimensions in pixels
-    let widthInPx = tempCustomWidth;
-    let heightInPx = tempCustomHeight;
-    
-    if (tempUnit === 'in') {
-      widthInPx *= INCH_TO_PX;
-      heightInPx *= INCH_TO_PX;
-    } else if (tempUnit === 'cm') {
-      widthInPx *= CM_TO_PX;
-      heightInPx *= CM_TO_PX;
-    } else if (tempUnit === 'mm') {
-      widthInPx *= MM_TO_PX;
-      heightInPx *= MM_TO_PX;
-    }
-    
-    // Update orientation
-    setPageOrientations(prev => ({
-      ...prev,
-      [selectedPage]: tempOrientation
-    }));
-    
-    // Update page size
-    setPageSizes(prev => ({
-      ...prev,
-      [selectedPage]: tempPageSize
-    }));
-    
-    // Update custom dimensions if needed
-    if (tempPageSize === 'CUSTOM') {
-      setCustomPageSizes(prev => ({
-        ...prev,
-        [selectedPage]: { width: widthInPx, height: heightInPx }
-      }));
-    }
-    
-    // Force immediate re-render of the affected page
-    setTimeout(() => {
-      const pageElement = document.querySelector(`[data-page="${selectedPage}"]`);
-      if (pageElement) {
-        // Force a layout recalculation
-        void pageElement.offsetHeight;
-        
-        // Update the page dimensions
-        let { width, height } = tempOrientation === 'landscape' && tempPageSize !== 'CUSTOM' 
-          ? { width: heightInPx, height: widthInPx }
-          : { width: widthInPx, height: heightInPx };
-          
-        pageElement.style.width = getZoomedSize(width);
-        pageElement.style.height = getZoomedSize(height);
-        
-        // Also update content area to match new dimensions
-        const contentArea = pageElement.querySelector('[data-content-area="true"]');
-        if (contentArea) {
-          // Adjust content area based on new dimensions
-          contentArea.style.width = getZoomedSize(width - margins.left - margins.right);
-          handleContentChange({ target: contentArea }, selectedPage);
-        }
-      }
-    }, 0);
-    
-    // Close dialog
-    setPageSettingsDialogOpen(false);
-    
-    // Save history after changes
-    setTimeout(() => {
-      saveHistory(ActionTypes.COMPLETE);
-    }, 100); // Slight delay to make sure all DOM changes are complete
-  };
+  // Add this CSS file to your project
+  // Create src/styles/listStyles.css
+  // And import it in your main file
 
-  // Now define the UI components that use these handlers
+  // Add this component definition above your return statement but inside the EditorContent component
   const PageSettingsButton = ({ pageNumber }) => {
+    const handlePageSettingsClick = (e, pageNum) => {
+      setPageSettingsAnchorEl(e.currentTarget);
+      setCurrentSettingsPage(pageNum.toString());
+    };
+
     return (
-      <Tooltip title="Page setup">
+      <Tooltip title="Page settings">
         <IconButton
+          data-page-settings="true"
           size="small"
           onClick={(e) => handlePageSettingsClick(e, pageNumber)}
           sx={{
             position: 'absolute',
-            top: '8px',
-            right: '8px',
+            top: '5px',
+            right: '5px',
             backgroundColor: 'rgba(255, 255, 255, 0.8)',
-            border: '1px solid #e0e0e0',
-            boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
-            zIndex: 5,
-            padding: '4px',
             '&:hover': {
-              backgroundColor: 'rgba(255, 255, 255, 1)',
-            }
+              backgroundColor: 'rgba(240, 240, 240, 0.9)',
+            },
+            zIndex: 10,
+            padding: '4px',
           }}
         >
-          <Settings sx={{ fontSize: '16px' }} />
+          <Settings fontSize="small" />
         </IconButton>
       </Tooltip>
     );
   };
 
-  const PageSettingsMenu = () => (
-    <>
+  // Add the PageSettingsMenu component definition
+  const PageSettingsMenu = () => {
+    const handlePageSettingsClose = () => {
+      setPageSettingsAnchorEl(null);
+    };
+
+    const handleOpenPageSettingsDialog = () => {
+      setPageSettingsDialogOpen(true);
+      handlePageSettingsClose();
+    };
+
+    const handleOrientationChange = (orientation) => {
+      setPageOrientations(prev => ({
+        ...prev,
+        [currentSettingsPage]: orientation
+      }));
+      handlePageSettingsClose();
+    };
+
+    return (
       <Menu
         anchorEl={pageSettingsAnchorEl}
         open={Boolean(pageSettingsAnchorEl)}
         onClose={handlePageSettingsClose}
       >
-        <MenuItem onClick={() => handleOrientationChange('portrait')}>
-          Portrait Orientation
-        </MenuItem>
-        <MenuItem onClick={() => handleOrientationChange('landscape')}>
-          Landscape Orientation
-        </MenuItem>
-        <Divider />
         <MenuItem onClick={handleOpenPageSettingsDialog}>
-          Page Setup...
+          <ListItemIcon>
+            <Settings fontSize="small" />
+          </ListItemIcon>
+          <ListItemText primary="Page setup" />
+        </MenuItem>
+        
+        <Divider />
+        
+        <Box sx={{ px: 2, py: 1 }}>
+          <Typography variant="subtitle2" color="text.secondary">
+            Orientation
+          </Typography>
+        </Box>
+        
+        <MenuItem 
+          onClick={() => handleOrientationChange('portrait')}
+          selected={pageOrientations[currentSettingsPage] === 'portrait'}
+        >
+          <ListItemIcon>
+            <CropPortrait fontSize="small" />
+          </ListItemIcon>
+          <ListItemText primary="Portrait" />
+        </MenuItem>
+        
+        <MenuItem 
+          onClick={() => handleOrientationChange('landscape')}
+          selected={pageOrientations[currentSettingsPage] === 'landscape'}
+        >
+          <ListItemIcon>
+            <ViewArray fontSize="small" sx={{ transform: 'rotate(90deg)' }} />
+          </ListItemIcon>
+          <ListItemText primary="Landscape" />
         </MenuItem>
       </Menu>
-      
-      <Dialog
-        open={pageSettingsDialogOpen}
-        onClose={handleClosePageSettingsDialog}
-        maxWidth="sm"
-        fullWidth
-        onClick={(e) => e.stopPropagation()}
-      >
-        <DialogTitle>Page Setup</DialogTitle>
-        <DialogContent>
-          <Box sx={{ my: 2 }}>
-            <Grid container spacing={2}>
-              <Grid item xs={12}>
-                <Typography variant="subtitle1">Orientation</Typography>
-                <Box sx={{ display: 'flex', mt: 1 }}>
-                  <Button
-                    variant={tempOrientation === 'portrait' ? 'contained' : 'outlined'}
-                    onClick={() => setTempOrientation('portrait')}
-                    sx={{ mr: 1, minWidth: '100px' }}
-                  >
-                    Portrait
-                  </Button>
-                  <Button
-                    variant={tempOrientation === 'landscape' ? 'contained' : 'outlined'}
-                    onClick={() => setTempOrientation('landscape')}
-                    sx={{ minWidth: '100px' }}
-                  >
-                    Landscape
-                  </Button>
-                </Box>
-              </Grid>
-              
-              <Grid item xs={12} sx={{ mt: 2 }}>
-                <Typography variant="subtitle1">Page Size</Typography>
-                <FormControl fullWidth sx={{ mt: 1 }}>
-                  <Select
-                    value={tempPageSize}
-                    onChange={handlePageSizeChange}
-                  >
-                    <MenuItem value="LETTER">Letter (8.5" x 11")</MenuItem>
-                    <MenuItem value="A4">A4 (8.27" x 11.69")</MenuItem>
-                    <MenuItem value="LEGAL">Legal (8.5" x 14")</MenuItem>
-                    <MenuItem value="TABLOID">Tabloid (11" x 17")</MenuItem>
-                    <MenuItem value="CUSTOM">Custom</MenuItem>
-                  </Select>
-                </FormControl>
-              </Grid>
-              
-              {tempPageSize === 'CUSTOM' && (
-                <Grid item xs={12} sx={{ mt: 1 }}>
-                  <Typography variant="subtitle2">Custom Page Size</Typography>
-                  <Box sx={{ display: 'flex', alignItems: 'center', mt: 1 }}>
-                    <TextField
-                      label="Width"
-                      type="number"
-                      value={tempCustomWidth}
-                      onChange={(e) => handleCustomSizeChange('width', parseFloat(e.target.value))}
-                      onClick={(e) => e.stopPropagation()}
-                      onFocus={(e) => e.stopPropagation()}
-                      inputProps={{ step: 0.1, min: 3, max: 48 }}
-                      sx={{ mr: 1, width: '120px' }}
-                    />
-                    <Typography sx={{ mx: 1 }}>×</Typography>
-                    <TextField
-                      label="Height"
-                      type="number"
-                      value={tempCustomHeight}
-                      onChange={(e) => handleCustomSizeChange('height', parseFloat(e.target.value))}
-                      onClick={(e) => e.stopPropagation()}
-                      onFocus={(e) => e.stopPropagation()}
-                      inputProps={{ step: 0.1, min: 3, max: 48 }}
-                      sx={{ mr: 1, width: '120px' }}
-                    />
-                    <FormControl sx={{ width: '80px' }}>
-                      <Select
-                        value={tempUnit}
-                        onChange={handleUnitChange}
-                      >
-                        <MenuItem value="in">in</MenuItem>
-                        <MenuItem value="cm">cm</MenuItem>
-                        <MenuItem value="mm">mm</MenuItem>
-                      </Select>
-                    </FormControl>
-                  </Box>
-                </Grid>
-              )}
-            </Grid>
-          </Box>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={handleClosePageSettingsDialog}>Cancel</Button>
-          <Button onClick={applyPageSettings} variant="contained">Apply</Button>
-        </DialogActions>
-      </Dialog>
-    </>
-  );
-
-  // Add this function to properly expose the indentation functionality to toolbar buttons
-  const handleToolbarIndent = (direction) => {
-    // Save history before making changes
-    saveHistory(ActionTypes.COMPLETE);
-    
-    const selection = window.getSelection();
-    if (!selection.rangeCount) return;
-    
-    const range = selection.getRangeAt(0);
-    let container = range.commonAncestorContainer;
-    if (container.nodeType === Node.TEXT_NODE) {
-      container = container.parentNode;
-    }
-    
-    // Find the containing page
-    const contentArea = findContentArea(container);
-    if (!contentArea) return;
-    
-    const pageNumber = parseInt(contentArea.getAttribute('data-page')) || 1;
-    
-    // If text is selected, indent all selected paragraphs
-    if (!range.collapsed) {
-      const paragraphs = getSelectedParagraphs(range);
-      if (paragraphs.length > 0) {
-        paragraphs.forEach(para => {
-          applyIndentation(para, direction);
-        });
-      }
-    } else {
-      // Just cursor - indent current paragraph
-      const paragraph = findParagraphNode(container);
-      if (paragraph) {
-        applyIndentation(paragraph, direction);
-      }
-    }
-    
-    // Update content
-    handleContentChange({ target: contentArea }, pageNumber);
-    
-    // Save history after changes
-    setTimeout(() => {
-      saveHistory(ActionTypes.COMPLETE);
-    }, 10);
-  };
-
-  useEffect(() => {
-    // Expose indentation functions to the window so toolbar buttons can access them
-    // This is a cleaner approach than using global variables
-    
-    // Create a custom event for indentation
-    const triggerIndent = (direction) => {
-      const event = new CustomEvent('editor-indent', { 
-        detail: { direction }
-      });
-      document.dispatchEvent(event);
-    };
-    
-    // Listen for indentation events from toolbar buttons
-    const handleIndentEvent = (e) => {
-      const { direction } = e.detail;
-      handleToolbarIndent(direction);
-    };
-    
-    document.addEventListener('editor-indent', handleIndentEvent);
-    
-    // Clean up event listener
-    return () => {
-      document.removeEventListener('editor-indent', handleIndentEvent);
-    };
-  }, []);
-
-  useEffect(() => {
-    const style = document.createElement('style');
-    style.textContent = `
-      .tab-space {
-        display: inline-block;
-        width: 40px;
-        min-width: 40px;
-      }
-      
-      [data-content-area="true"] p,
-      [data-content-area="true"] div,
-      [data-content-area="true"] h1,
-      [data-content-area="true"] h2,
-      [data-content-area="true"] h3,
-      [data-content-area="true"] h4,
-      [data-content-area="true"] h5,
-      [data-content-area="true"] h6,
-      [data-content-area="true"] li {
-        transition: margin-left 0.05s ease;
-      }
-    `;
-    document.head.appendChild(style);
-    
-    return () => {
-      if (style.parentNode) {
-        document.head.removeChild(style);
-      }
-    };
-  }, []);
-
-  useEffect(() => {
-    // This function will handle indentation events from the toolbar
-    const handleIndentEvent = (e) => {
-      if (!e || !e.detail) return;
-      
-      const { direction } = e.detail;
-      
-      // Save history before changes
-      saveHistory(ActionTypes.COMPLETE);
-      
-      // Get the current selection
-      const selection = window.getSelection();
-      if (!selection.rangeCount) return;
-      
-      const range = selection.getRangeAt(0);
-      let container = range.commonAncestorContainer;
-      
-      // Find the page number
-      let pageNumber = 1;
-      let element = container;
-      while (element) {
-        if (element.hasAttribute && element.hasAttribute('data-page')) {
-          pageNumber = parseInt(element.getAttribute('data-page'));
-          break;
-        }
-        element = element.parentNode;
-      }
-      
-      // Apply indentation
-      handleIndent(direction, pageNumber);
-      
-      // Save history after changes
-      setTimeout(() => {
-        saveHistory(ActionTypes.COMPLETE);
-      }, 10);
-    };
-    
-    // Add event listener
-    document.addEventListener('editor-indent', handleIndentEvent);
-    
-    // Clean up
-    return () => {
-      document.removeEventListener('editor-indent', handleIndentEvent);
-    };
-  }, []);
-
-  useEffect(() => {
-    // Apply CSS to fix tab character display
-    document.querySelectorAll('.page-content').forEach(element => {
-      element.style.tabSize = '0';
-      element.style.MozTabSize = '0';
-    });
-  }, [pages]);
-
-  // Add this to handleSpecialKeys function where you handle Enter key
-  const handleEnterKey = (e, pageNumber) => {
-    if (e.key !== 'Enter' || e.shiftKey) return false; // Only handle plain Enter key
-    
-    const selection = window.getSelection();
-    if (!selection.rangeCount) return false;
-    
-    const range = selection.getRangeAt(0);
-    if (!range.collapsed) return false; // Let default handle non-collapsed selections
-    
-    let container = range.commonAncestorContainer;
-    if (container.nodeType === Node.TEXT_NODE) {
-      container = container.parentNode;
-    }
-    
-    // Find the current paragraph
-    const paragraph = findParagraphNode(container);
-    if (!paragraph) return false;
-    
-    // Get current indentation
-    const style = window.getComputedStyle(paragraph);
-    const currentIndent = style.marginLeft;
-    
-    if (currentIndent && currentIndent !== '0px') {
-      // Let browser handle Enter key first
-      setTimeout(() => {
-        // Now find the new paragraph
-        const newSelection = window.getSelection();
-        if (!newSelection.rangeCount) return;
-        
-        const newRange = newSelection.getRangeAt(0);
-        let newContainer = newRange.commonAncestorContainer;
-        if (newContainer.nodeType === Node.TEXT_NODE) {
-          newContainer = newContainer.parentNode;
-        }
-        
-        const newParagraph = findParagraphNode(newContainer);
-        
-        if (newParagraph && newParagraph !== paragraph) {
-          // Apply the same indentation to the new paragraph
-          newParagraph.style.marginLeft = currentIndent;
-          
-          // Update content
-          const contentArea = findContentArea(newParagraph);
-          if (contentArea) {
-            handleContentChange({ target: contentArea }, pageNumber);
-          }
-        }
-      }, 0);
-    }
-    
-    return false; // Allow default Enter key behavior
+    );
   };
 
   return (
@@ -1772,122 +1298,122 @@ const EditorContent = () => {
           const { width, height } = getPageDimensions(pageNumber);
           
           return (
-            <div
-              key={pageNumber}
-              data-page={pageNumber}
-              className="bg-white shadow-[0_2px_8px_rgba(0,0,0,0.15)] rounded-sm transition-shadow hover:shadow-[0_4px_12px_rgba(0,0,0,0.2)]"
-              style={{
+          <div
+            key={pageNumber}
+            data-page={pageNumber}
+            className="bg-white shadow-[0_2px_8px_rgba(0,0,0,0.15)] rounded-sm transition-shadow hover:shadow-[0_4px_12px_rgba(0,0,0,0.2)]"
+            style={{
                 width: getZoomedSize(width),
                 height: getZoomedSize(height),
-                position: 'relative',
-                backgroundColor: 'white',
-                margin: '10px',
-              }}
+              position: 'relative',
+              backgroundColor: 'white',
+              margin: '10px',
+            }}
               onClick={() => {
                 // Set current page when clicked
                 setSelectedPage(pageNumber);
-              }}
-            >
+            }}
+          >
               {/* Add the Page Settings Button */}
               <PageSettingsButton pageNumber={pageNumber} />
               
-              {/* Header Area */}
-              <div
-                ref={el => headerRefs.current[pageNumber] = el}
-                contentEditable
-                suppressContentEditableWarning
-                className="absolute outline-none px-2"
-                style={{
-                  top: getZoomedSize(margins.top * 0.25),
-                  left: getZoomedSize(margins.left),
-                  right: getZoomedSize(margins.right),
-                  height: getZoomedSize(margins.top * 0.5),
-                  minHeight: '1em',
-                  backgroundColor: 'white',
-                  zIndex: 2,
-                  direction: 'ltr',
-                  unicodeBidi: 'plaintext'
-                }}
-                onInput={(e) => handleHeaderChange(e, pageNumber)}
-                dir="ltr"
-              >
-                {headers[pageNumber]}
-              </div>
+            {/* Header Area */}
+            <div
+              ref={el => headerRefs.current[pageNumber] = el}
+              contentEditable
+              suppressContentEditableWarning
+              className="absolute outline-none px-2"
+              style={{
+                top: getZoomedSize(margins.top * 0.25),
+                left: getZoomedSize(margins.left),
+                right: getZoomedSize(margins.right),
+                height: getZoomedSize(margins.top * 0.5),
+                minHeight: '1em',
+                backgroundColor: 'white',
+                zIndex: 2,
+                direction: 'ltr',
+                unicodeBidi: 'plaintext'
+              }}
+              onInput={(e) => handleHeaderChange(e, pageNumber)}
+              dir="ltr"
+            >
+              {headers[pageNumber]}
+            </div>
 
-              {/* Content Area */}
-              <div
-                ref={el => contentRefs.current[pageNumber] = el}
-                contentEditable
-                suppressContentEditableWarning
-                className="absolute outline-none px-2"
-                data-content-area="true"
-                data-page={pageNumber}
-                style={{
-                  top: getZoomedSize(margins.top * 0.75),
-                  left: getZoomedSize(margins.left),
-                  right: getZoomedSize(margins.right),
-                  bottom: getZoomedSize(margins.bottom * 0.75),
-                  overflowY: 'hidden',
-                  wordWrap: 'break-word',
-                  backgroundColor: 'white',
-                  zIndex: 1,
-                  direction: 'ltr',
-                  unicodeBidi: 'plaintext',
-                  textAlign: 'left'
-                }}
-                onInput={(e) => handleContentChange(e, pageNumber)}
+            {/* Content Area */}
+            <div
+              ref={el => contentRefs.current[pageNumber] = el}
+              contentEditable
+              suppressContentEditableWarning
+              className="absolute outline-none px-2"
+              data-content-area="true"
+              data-page={pageNumber}
+              style={{
+                top: getZoomedSize(margins.top * 0.75),
+                left: getZoomedSize(margins.left),
+                right: getZoomedSize(margins.right),
+                bottom: getZoomedSize(margins.bottom * 0.75),
+                overflowY: 'hidden',
+                wordWrap: 'break-word',
+                backgroundColor: 'white',
+                zIndex: 1,
+                direction: 'ltr',
+                unicodeBidi: 'plaintext',
+                textAlign: 'left'
+              }}
+              onInput={(e) => handleContentChange(e, pageNumber)}
                 onKeyDown={(e) => {
                   // Handle all special keys, including Tab
                   handleSpecialKeys(e, pageNumber);
                   // Also handle backspace at start of page
                   handleKeyDown(e, pageNumber);
                 }}
-                dir="ltr"
-              >
-                {pageContents[pageNumber]}
-              </div>
+              dir="ltr"
+            >
+              {pageContents[pageNumber]}
+            </div>
 
-              {/* Footer Area */}
-              <div
-                ref={el => footerRefs.current[pageNumber] = el}
-                contentEditable
-                suppressContentEditableWarning
-                className="absolute outline-none px-2"
-                style={{
-                  bottom: getZoomedSize(margins.bottom * 0.25),
-                  left: getZoomedSize(margins.left),
-                  right: getZoomedSize(margins.right),
-                  height: getZoomedSize(margins.bottom * 0.5),
-                  minHeight: '1em',
-                  backgroundColor: 'white',
-                  zIndex: 2,
-                  direction: 'ltr',
-                  unicodeBidi: 'plaintext'
-                }}
-                onInput={(e) => handleFooterChange(e, pageNumber)}
-                dir="ltr"
-              >
-                <div className="flex justify-between items-center h-full">
-                  <div>{footers[pageNumber]}</div>
-                  <div className="text-gray-500 text-sm">
-                    Page {pageNumber} of {pages.length}
-                  </div>
+            {/* Footer Area */}
+            <div
+              ref={el => footerRefs.current[pageNumber] = el}
+              contentEditable
+              suppressContentEditableWarning
+              className="absolute outline-none px-2"
+              style={{
+                bottom: getZoomedSize(margins.bottom * 0.25),
+                left: getZoomedSize(margins.left),
+                right: getZoomedSize(margins.right),
+                height: getZoomedSize(margins.bottom * 0.5),
+                minHeight: '1em',
+                backgroundColor: 'white',
+                zIndex: 2,
+                direction: 'ltr',
+                unicodeBidi: 'plaintext'
+              }}
+              onInput={(e) => handleFooterChange(e, pageNumber)}
+              dir="ltr"
+            >
+              <div className="flex justify-between items-center h-full">
+                <div>{footers[pageNumber]}</div>
+                <div className="text-gray-500 text-sm">
+                  Page {pageNumber} of {pages.length}
                 </div>
               </div>
-
-              {/* Margin Guidelines */}
-              <div className="absolute inset-0 pointer-events-none">
-                <div 
-                  className="absolute border border-dashed border-gray-200"
-                  style={{
-                    top: getZoomedSize(margins.top),
-                    left: getZoomedSize(margins.left),
-                    right: getZoomedSize(margins.right),
-                    bottom: getZoomedSize(margins.bottom),
-                  }}
-                />
-              </div>
             </div>
+
+            {/* Margin Guidelines */}
+            <div className="absolute inset-0 pointer-events-none">
+              <div 
+                className="absolute border border-dashed border-gray-200"
+                style={{
+                  top: getZoomedSize(margins.top),
+                  left: getZoomedSize(margins.left),
+                  right: getZoomedSize(margins.right),
+                  bottom: getZoomedSize(margins.bottom),
+                }}
+              />
+            </div>
+          </div>
           );
         })}
       </div>
@@ -1897,5 +1423,5 @@ const EditorContent = () => {
   );
 };
 
-export default EditorContent;
+export default EditorContent; 
 
