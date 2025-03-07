@@ -198,7 +198,7 @@ const EditorContent = () => {
     return null;
   };
 
-  // Updated Tab handling function to match Google Docs behavior
+  // Updated Tab handling function with full Google Docs behavior
   const handleTabKey = (e, pageNumber) => {
     e.preventDefault(); // Prevent default tab behavior
     
@@ -220,46 +220,29 @@ const EditorContent = () => {
     const contentArea = findContentArea(container);
     if (!contentArea) return;
     
-    // Check if any text is selected - not just a cursor position
-    if (!range.collapsed) {
-      // Text is selected - indent the entire selection
-      const paragraphs = getSelectedParagraphs(range);
-      if (paragraphs.length > 0) {
-        // Apply indentation to all selected paragraphs
-        paragraphs.forEach(para => {
-          applyIndentation(para, e.shiftKey ? 'decrease' : 'increase');
-        });
-        
-        // Maintain the selection
-        selection.removeAllRanges();
-        selection.addRange(range);
-      }
+    // Check if we're in a table cell - handle table navigation
+    const tableCell = findParentWithTag(container, 'TD');
+    if (tableCell) {
+      moveToNextTableCell(tableCell, e.shiftKey);
+      return;
+    }
+    
+    // Check if we're in a list - handle list indentation
+    const listItem = getListItem(container);
+    if (listItem) {
+      handleListIndentation(listItem, e.shiftKey ? 'outdent' : 'indent');
+      return;
+    }
+    
+    // Handle regular paragraph indentation like Google Docs
+    const paragraph = findParagraphNode(container);
+    
+    if (paragraph) {
+      // Apply paragraph indentation - this is how Google Docs handles tabs in paragraphs
+      applyIndentation(paragraph, e.shiftKey ? 'decrease' : 'increase');
     } else {
-      // No text selected, just cursor placement
-      const listItem = getListItem(container);
-      
-      if (listItem) {
-        // Handle list item indentation
-        handleListIndentation(listItem, e.shiftKey ? 'outdent' : 'indent');
-      } else {
-        // In regular text - move just the cursor by inserting a tab space
-        // Google Docs uses ~0.5 inch (40px) tab stops
-        const tabNode = document.createElement('span');
-        tabNode.style.display = 'inline-block';
-        tabNode.style.width = '40px'; // 0.5 inch at 96 DPI
-        tabNode.style.minWidth = '40px';
-        tabNode.className = 'tab-space';
-        tabNode.innerHTML = '&nbsp;'; // Prevent tab from collapsing
-        
-        // Insert the tab at cursor position
-        range.insertNode(tabNode);
-        
-        // Move cursor after the tab
-        range.setStartAfter(tabNode);
-        range.setEndAfter(tabNode);
-        selection.removeAllRanges();
-        selection.addRange(range);
-      }
+      // Fallback: Insert tab as a non-breaking space sequence (like Google Docs) at cursor
+      document.execCommand('insertHTML', false, '&emsp;&emsp;');
     }
     
     // Update content to ensure changes are saved
@@ -273,7 +256,7 @@ const EditorContent = () => {
     }, 10);
   };
 
-  // Helper function to apply indentation at exactly 0.5 inch (40px) steps
+  // Enhance the paragraph indentation function
   const applyIndentation = (paragraph, direction) => {
     if (!paragraph) return;
     
@@ -287,101 +270,64 @@ const EditorContent = () => {
     if (direction === 'increase') {
       // Increase indentation by one step
       const newMargin = currentMarginLeft + INDENT_STEP;
+      
+      // Apply indentation directly to the paragraph
       paragraph.style.marginLeft = `${newMargin}px`;
+      
+      // Store indentation level
+      const currentLevel = parseInt(paragraph.getAttribute('data-indent-level') || '0');
+      paragraph.setAttribute('data-indent-level', (currentLevel + 1).toString());
     } else if (direction === 'decrease' && currentMarginLeft >= INDENT_STEP) {
       // Decrease indentation, but never below 0
       const newMargin = Math.max(0, currentMarginLeft - INDENT_STEP);
       
       if (newMargin === 0) {
         paragraph.style.removeProperty('margin-left');
+        paragraph.removeAttribute('data-indent-level');
       } else {
         paragraph.style.marginLeft = `${newMargin}px`;
+        const currentLevel = parseInt(paragraph.getAttribute('data-indent-level') || '0');
+        paragraph.setAttribute('data-indent-level', Math.max(0, currentLevel - 1).toString());
       }
     }
   };
 
-  // Function to get all paragraphs in a selection
-  const getSelectedParagraphs = (range) => {
-    if (range.collapsed) {
-      return [];
-    }
-    
-    const paragraphs = [];
-    
-    // Create a fragment containing the selection
-    const fragment = range.cloneContents();
-    
-    // If selection only contains text nodes, get the paragraph they belong to
-    if (fragment.childNodes.length === 0 || 
-        (fragment.childNodes.length === 1 && fragment.firstChild.nodeType === Node.TEXT_NODE)) {
-      const paragraph = findParagraphNode(range.commonAncestorContainer);
-      if (paragraph) {
-        paragraphs.push(paragraph);
-      }
-      return paragraphs;
-    }
-    
-    // For selections spanning multiple elements
-    const container = range.commonAncestorContainer;
-    
-    // Create a document fragment to work with
-    const tempDiv = document.createElement('div');
-    tempDiv.appendChild(fragment);
-    
-    // Find all paragraph-like elements in the selection
-    const blockElements = tempDiv.querySelectorAll('p, div, h1, h2, h3, h4, h5, h6, li');
-    
-    if (blockElements.length > 0) {
-      // Get all actual paragraphs that contain these elements in the document
-      blockElements.forEach(el => {
-        // Find the actual paragraph in the document that contains this selection
-        let paragraphInDoc;
-        
-        if (container.nodeType === Node.ELEMENT_NODE) {
-          // Try to find a matching element with the same content
-          const similar = container.querySelectorAll(el.nodeName);
-          for (let i = 0; i < similar.length; i++) {
-            if (similar[i].textContent.includes(el.textContent)) {
-              paragraphInDoc = similar[i];
-              break;
-            }
-          }
-        }
-        
-        // If we found a match and it's not already in our list
-        if (paragraphInDoc && !paragraphs.includes(paragraphInDoc)) {
-          paragraphs.push(paragraphInDoc);
-        }
-      });
-    } else {
-      // Fallback - get the containing paragraph
-      const paragraph = findParagraphNode(container);
-      if (paragraph) {
-        paragraphs.push(paragraph);
-      }
-    }
-    
-    return paragraphs;
-  };
-
-  // Helper function to find paragraph node
+  // Add a better paragraph finder
   const findParagraphNode = (node) => {
-    while (node && node.nodeType === Node.ELEMENT_NODE) {
-      // Check if it's a block-level element
-      const display = window.getComputedStyle(node).display;
-      if (display === 'block' || 
-          node.nodeName === 'P' || 
-          node.nodeName === 'DIV' || 
-          node.nodeName === 'H1' || 
-          node.nodeName === 'H2' || 
-          node.nodeName === 'H3' || 
-          node.nodeName === 'H4' || 
-          node.nodeName === 'H5' || 
-          node.nodeName === 'H6') {
-        return node;
-      }
-      node = node.parentNode;
+    if (!node) return null;
+    
+    // Start with the node itself
+    let current = node;
+    
+    // If it's a text node, get its parent
+    if (current.nodeType === Node.TEXT_NODE) {
+      current = current.parentNode;
     }
+    
+    // Find the block-level container (paragraph)
+    while (current && current.nodeType === Node.ELEMENT_NODE) {
+      // Special check for content area - if we reach this, we've gone too far
+      if (current.getAttribute && current.getAttribute('data-content-area') === 'true') {
+        return null;
+      }
+      
+      // Check if it's a block element that would act as a paragraph
+      const display = window.getComputedStyle(current).display;
+      if (display === 'block' || 
+          current.nodeName === 'P' || 
+          current.nodeName === 'DIV' || 
+          current.nodeName === 'H1' || 
+          current.nodeName === 'H2' || 
+          current.nodeName === 'H3' || 
+          current.nodeName === 'H4' || 
+          current.nodeName === 'H5' || 
+          current.nodeName === 'H6') {
+        return current;
+      }
+      
+      current = current.parentNode;
+    }
+    
     return null;
   };
 
@@ -458,7 +404,7 @@ const EditorContent = () => {
     }
   };
 
-  // Updated function for indentation buttons
+  // Comprehensive indentation handler for indent/outdent buttons
   const handleIndent = (direction, pageNumber) => {
     // Save history before making changes
     saveHistory(ActionTypes.COMPLETE);
@@ -469,28 +415,51 @@ const EditorContent = () => {
     const range = selection.getRangeAt(0);
     const originalRange = range.cloneRange(); // Save for later restoration
     
-    // Check if any text is selected
+    // Find the content area
+    const contentArea = findContentArea(range.commonAncestorContainer);
+    if (!contentArea) return;
+    
+    // Handle multiple paragraphs if text is selected
     if (!range.collapsed) {
-      // Text is selected - handle multiple paragraphs
       const paragraphs = getSelectedParagraphs(range);
-      paragraphs.forEach(para => {
-        applyIndentation(para, direction);
-      });
+      if (paragraphs.length > 0) {
+        paragraphs.forEach(para => {
+          applyIndentation(para, direction);
+        });
+      } else {
+        // Fallback for when getSelectedParagraphs fails
+        // Find the current paragraph
+        let container = range.commonAncestorContainer;
+        if (container.nodeType === Node.TEXT_NODE) {
+          container = container.parentNode;
+        }
+        
+        const paragraph = findParagraphNode(container);
+        if (paragraph) {
+          applyIndentation(paragraph, direction);
+        }
+      }
     } else {
-      // Just cursor placement - handle current paragraph
+      // Just cursor placement - handle current element
       let container = range.commonAncestorContainer;
       if (container.nodeType === Node.TEXT_NODE) {
         container = container.parentNode;
       }
       
-      const paragraph = findParagraphNode(container);
-      if (paragraph) {
-        applyIndentation(paragraph, direction);
+      // Check if in list item
+      const listItem = getListItem(container);
+      if (listItem) {
+        handleListIndentation(listItem, direction === 'increase' ? 'indent' : 'outdent');
+      } else {
+        // Regular paragraph
+        const paragraph = findParagraphNode(container);
+        if (paragraph) {
+          applyIndentation(paragraph, direction);
+        }
       }
     }
     
-    // Make sure changes are saved
-    const contentArea = findContentArea(range.commonAncestorContainer);
+    // Make sure changes are saved to state
     if (contentArea) {
       handleContentChange({ target: contentArea }, pageNumber);
     }
@@ -516,26 +485,28 @@ const EditorContent = () => {
     return null;
   };
 
-  // Helper function for list indentation
+  // Enhanced list indentation with proper hierarchy and style changes
   const handleListIndentation = (listItem, direction) => {
     if (!listItem) return false;
     
     // Save before making changes
     saveHistory(ActionTypes.COMPLETE);
     
+    const parentList = listItem.parentNode;
+    if (!parentList) return false;
+    
     if (direction === 'indent') {
-      // Can't indent first item
+      // Can't indent first item in a list (Google Docs behavior)
       const prevLi = listItem.previousElementSibling;
       if (!prevLi) return false;
       
       // Find or create a sublist in the previous item
       let sublist = Array.from(prevLi.children).find(child => 
-        child.nodeName === 'UL' || child.nodeName === 'OL'
+        child.nodeName === parentList.nodeName // Keep same list type (UL or OL)
       );
       
       if (!sublist) {
         // Create same type of list as parent
-        const parentList = listItem.parentNode;
         sublist = document.createElement(parentList.nodeName);
         prevLi.appendChild(sublist);
       }
@@ -547,20 +518,20 @@ const EditorContent = () => {
       updateListStyles(sublist);
       
       // Save after changes
-      saveHistory(ActionTypes.COMPLETE);
+      setTimeout(() => {
+        saveHistory(ActionTypes.COMPLETE);
+      }, 10);
+      
       return true;
     } else if (direction === 'outdent') {
       // Can't outdent if not nested
-      const parentList = listItem.parentNode;
-      if (!parentList) return false;
-      
       const grandparent = parentList.parentNode;
       if (!grandparent || grandparent.nodeName !== 'LI') return false;
       
       const greatGrandparentList = grandparent.parentNode;
       if (!greatGrandparentList) return false;
       
-      // Move this item after its grandparent
+      // Move this item after its grandparent (Google Docs behavior)
       if (grandparent.nextSibling) {
         greatGrandparentList.insertBefore(listItem, grandparent.nextSibling);
       } else {
@@ -576,7 +547,10 @@ const EditorContent = () => {
       updateListStyles(greatGrandparentList);
       
       // Save after changes
-      saveHistory(ActionTypes.COMPLETE);
+      setTimeout(() => {
+        saveHistory(ActionTypes.COMPLETE);
+      }, 10);
+      
       return true;
     }
     
@@ -595,18 +569,8 @@ const EditorContent = () => {
     
     const range = selection.getRangeAt(0);
       
-    // Check if selection is at the start of the paragraph
-    // This is tricky - we need to check if we're at position 0 of the first text node
-    const textNodes = Array.from(paragraph.childNodes).filter(n => 
-      n.nodeType === Node.TEXT_NODE || 
-      (n.nodeType === Node.ELEMENT_NODE && n.nodeName !== 'BR')
-    );
-    
-    const firstTextNode = textNodes[0];
-    const isAtStart = range.startContainer === firstTextNode && range.startOffset === 0;
-    
-    // If cursor isn't at the start of paragraph, let default backspace handle it
-    if (!isAtStart && range.startContainer !== paragraph) return false;
+    // Google Docs behavior: only handle backspace if at the start of paragraph
+    if (!isAtStartOfNode(range, paragraph)) return false;
     
     // Check for indentation
     const computedStyle = window.getComputedStyle(paragraph);
@@ -624,8 +588,11 @@ const EditorContent = () => {
       
       if (newMargin === 0) {
         paragraph.style.removeProperty('margin-left');
+        paragraph.removeAttribute('data-indent-level');
       } else {
         paragraph.style.marginLeft = `${newMargin}px`;
+        const currentLevel = parseInt(paragraph.getAttribute('data-indent-level') || '0');
+        paragraph.setAttribute('data-indent-level', Math.max(0, currentLevel - 1).toString());
       }
       
       // Update the content
@@ -643,7 +610,7 @@ const EditorContent = () => {
       return true; // Indicate we handled the backspace
     }
     
-    // If no indentation, let default backspace behavior happen
+    // If no indentation or not at start, let default backspace behavior happen
     return false;
   };
 
@@ -683,16 +650,31 @@ const EditorContent = () => {
       return;
     }
     
-    // Handle Backspace - first check if we're at the start of an indented paragraph
+    // Handle Enter key to preserve indentation
+    if (e.key === 'Enter') {
+      if (handleEnterKey(e, pageNumber)) {
+        return;
+      }
+    }
+    
+    // Handle Backspace - check if we're at the start of an indented paragraph
     if (e.key === 'Backspace' && range.collapsed) {
       if (handleBackspaceIndent(e, container)) {
         return;
       }
     }
     
-    // Handle Enter key to maintain indentation
-    if (e.key === 'Enter' && !e.shiftKey) {
-      // This is handled elsewhere, so no specific code needed here
+    // Handle keyboard shortcuts for indentation
+    if ((e.ctrlKey || e.metaKey) && e.key === ']') {
+      e.preventDefault();
+      handleIndent('increase', pageNumber);
+      return;
+    }
+    
+    if ((e.ctrlKey || e.metaKey) && e.key === '[') {
+      e.preventDefault();
+      handleIndent('decrease', pageNumber);
+      return;
     }
     
     // Handle other special keys
@@ -1289,6 +1271,46 @@ const EditorContent = () => {
       </Menu>
     );
   };
+
+  // Add event listener for indentation commands from toolbar
+  useEffect(() => {
+    const handleIndentationEvent = (e) => {
+      const { direction, pageNumber } = e.detail;
+      handleIndent(direction, pageNumber);
+    };
+    
+    window.addEventListener('handle-indentation', handleIndentationEvent);
+    
+    // Setup keyboard shortcuts
+    const handleKeyboardShortcuts = (e) => {
+      // Ctrl+] or Cmd+] for increase indent
+      if ((e.ctrlKey || e.metaKey) && e.key === ']') {
+        e.preventDefault();
+        const contentArea = document.querySelector('[data-content-area="true"]');
+        if (contentArea) {
+          const pageNumber = parseInt(contentArea.getAttribute('data-page')) || 1;
+          handleIndent('increase', pageNumber);
+        }
+      }
+      
+      // Ctrl+[ or Cmd+[ for decrease indent
+      if ((e.ctrlKey || e.metaKey) && e.key === '[') {
+        e.preventDefault();
+        const contentArea = document.querySelector('[data-content-area="true"]');
+        if (contentArea) {
+          const pageNumber = parseInt(contentArea.getAttribute('data-page')) || 1;
+          handleIndent('decrease', pageNumber);
+        }
+      }
+    };
+    
+    document.addEventListener('keydown', handleKeyboardShortcuts);
+    
+    return () => {
+      window.removeEventListener('handle-indentation', handleIndentationEvent);
+      document.removeEventListener('keydown', handleKeyboardShortcuts);
+    };
+  }, []);
 
   return (
     <div className="min-h-screen bg-[#E5E5E5] p-8">

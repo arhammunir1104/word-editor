@@ -1,0 +1,47 @@
+/* Indentation and tab styles */
+
+/* Tab spaces */
+.tab-space {
+  display: inline-block;
+  width: 0.5in; /* 48px at 96 DPI */
+  min-width: 40px;
+  height: 1em;
+}
+
+/* Indented paragraph styles */
+[data-indent-level="1"] {
+  margin-left: 40px !important; /* 0.5 inch */
+}
+
+[data-indent-level="2"] {
+  margin-left: 80px !important; /* 1 inch */
+}
+
+[data-indent-level="3"] {
+  margin-left: 120px !important; /* 1.5 inches */
+}
+
+[data-indent-level="4"] {
+  margin-left: 160px !important; /* 2 inches */
+}
+
+[data-indent-level="5"] {
+  margin-left: 200px !important; /* 2.5 inches */
+}
+
+/* First-line indentation (for paragraph style dialog) */
+.first-line-indent {
+  text-indent: 40px;
+}
+
+/* Hanging indent (for paragraph style dialog) */
+.hanging-indent {
+  padding-left: 40px;
+  text-indent: -40px;
+}
+
+/* Fix tab styling */
+[contenteditable] em {
+  width: 40px;
+  display: inline-block;
+} 

@@ -16,6 +16,7 @@ import './styles/tableStyles.css';
 import './styles/lineSpacingStyles.css';
 import './styles/listStyles.css';
 import './styles/editorStyles.css';
+import './styles/indentationStyles.css';
 
 const App = () => {
   return (
