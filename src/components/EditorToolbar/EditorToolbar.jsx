@@ -1274,13 +1274,76 @@ const EditorToolbar = () => {
   };
 
   const handleIndent = (direction) => {
-    // Create a custom event for the EditorContent component to handle
-    const event = new CustomEvent('editor-indent', { 
-      detail: { direction } 
-    });
+    console.log(`Indent button clicked: ${direction}`);
     
-    // Dispatch the event to the document so EditorContent can catch it
-    document.dispatchEvent(event);
+    // Save current selection before focusing anything
+    const selection = window.getSelection();
+    let savedRange = null;
+    
+    if (selection && selection.rangeCount > 0) {
+      savedRange = selection.getRangeAt(0).cloneRange();
+      console.log('Saved current selection range');
+    }
+    
+    // Try to get the current editor content area
+    const contentArea = document.querySelector('[data-content-area="true"]');
+    if (contentArea) {
+      // Focus the content area to ensure it receives the event
+      contentArea.focus();
+      
+      // Restore the selection if we had one
+      if (savedRange) {
+        console.log('Restoring saved selection range');
+        try {
+          selection.removeAllRanges();
+          selection.addRange(savedRange);
+        } catch (error) {
+          console.error('Error restoring selection:', error);
+        }
+      }
+    }
+    
+    // Wait a tiny bit to ensure focus and selection are properly set
+    setTimeout(() => {
+      console.log('Dispatching editor-indent event');
+      
+      // Create a custom event for the EditorContent component to handle
+      const event = new CustomEvent('editor-indent', { 
+        detail: { direction } 
+      });
+      
+      // Dispatch the event to the document so EditorContent can catch it
+      document.dispatchEvent(event);
+      
+      // Add a direct fallback approach for older browsers or if custom events fail
+      try {
+        console.log('Trying fallback indent method');
+        if (contentArea) {
+          // Try to directly apply the indent via keyboard shortcut simulation
+          if (direction === 'increase') {
+            // Simulate Ctrl+] for increase indent
+            const increaseEvent = new KeyboardEvent('keydown', {
+              key: ']',
+              code: 'BracketRight',
+              ctrlKey: true,
+              bubbles: true
+            });
+            document.dispatchEvent(increaseEvent);
+          } else {
+            // Simulate Ctrl+[ for decrease indent
+            const decreaseEvent = new KeyboardEvent('keydown', {
+              key: '[',
+              code: 'BracketLeft',
+              ctrlKey: true,
+              bubbles: true
+            });
+            document.dispatchEvent(decreaseEvent);
+          }
+        }
+      } catch (error) {
+        console.error('Error in fallback indent method:', error);
+      }
+    }, 10);
   };
 
   return (

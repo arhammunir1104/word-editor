@@ -208,6 +208,8 @@ const EditorContent = () => {
     e.stopPropagation();
     e.stopImmediatePropagation();
     
+    console.log(`Tab key handler: ${e.shiftKey ? 'Shift+Tab' : 'Tab'} on page ${pageNumber}`);
+    
     // Save history state before changes (for undo/redo)
     saveHistory(ActionTypes.COMPLETE);
     
@@ -236,6 +238,9 @@ const EditorContent = () => {
     const contentArea = findContentArea(container);
     if (!contentArea) return;
     
+    // Track if any changes were made to decide whether to save history
+    let anyChangesApplied = false;
+    
     // Special case: Table cell navigation
     const tableCell = findParentWithTag(container, 'TD');
     if (tableCell) {
@@ -246,137 +251,156 @@ const EditorContent = () => {
     // Special case: List indentation
     const listItem = getListItem(container);
     if (listItem) {
-      handleListIndentation(listItem, e.shiftKey ? 'outdent' : 'indent');
-      return;
-    }
-    
-    // Find paragraphs to indent (with extensive fallbacks for reliability)
-    let paragraphs = [];
-    
-    // Case 1: Selected text (span of paragraphs to indent)
-    if (!range.collapsed) {
-      // Find all affected paragraphs using our robust method
-      paragraphs = findAllParagraphsInSelection(range, contentArea);
+      const success = handleListIndentation(listItem, e.shiftKey ? 'outdent' : 'indent');
+      if (success) anyChangesApplied = true;
       
-      // If no paragraphs found, try a more aggressive approach
-      if (!paragraphs.length) {
-        // Find all potential paragraphs in contentArea
-        const allParagraphs = Array.from(
-          contentArea.querySelectorAll('p, div:not([data-content-area]), h1, h2, h3, h4, h5, h6')
-        );
-        
-        // Use DOM range intersections to find affected paragraphs
-        paragraphs = allParagraphs.filter(node => {
-          try {
-            return range.intersectsNode(node);
-          } catch {
-            return false;
-          }
-        });
-      }
-      
-      // If we still have no paragraphs, try another approach
-      if (!paragraphs.length) {
-        const startPara = findParagraphNode(startContainer);
-        const endPara = findParagraphNode(endContainer);
-        
-        if (startPara) paragraphs.push(startPara);
-        if (endPara && startPara !== endPara) paragraphs.push(endPara);
-      }
-    }
-    // Case 2: Cursor only (single paragraph to indent)
-    else {
-      const paragraph = findParagraphNode(container);
-      if (paragraph) {
-        paragraphs = [paragraph];
-      }
-    }
-    
-    // Apply indentation to all found paragraphs
-    if (paragraphs.length > 0) {
-      // For Shift+Tab: only apply when it makes sense
-      // With Shift+Tab, only decrease if there's indentation to decrease
-      if (e.shiftKey) {
-        let anyChanged = false;
-        paragraphs.forEach(para => {
-          if (para) {
-            // Only apply if paragraph has existing indentation
-            const computedStyle = window.getComputedStyle(para);
-            const currentMarginLeft = parseInt(computedStyle.marginLeft) || 0;
-            
-            if (currentMarginLeft > 0) {
-              applyIndentation(para, direction);
-              anyChanged = true;
-            }
-          }
-        });
-        
-        // If nothing changed with Shift+Tab, don't bother with history
-        if (!anyChanged) {
-          // Cancel history save we started earlier
-          window.cancelAnimationFrame(window._pendingHistorySave);
-          return;
-        }
-      } 
-      // For normal Tab: always indent forward
-      else {
-        paragraphs.forEach(para => {
-          if (para) {
-            applyIndentation(para, direction);
-          }
-        });
-      }
-      
-      // Update content to ensure changes are saved
-      handleContentChange({ target: contentArea }, pageNumber);
-      
-      // CRITICAL: Restore original selection exactly to prevent text loss
+      // Always try to restore selection
       try {
-        // Clear all ranges and restore using the original containers/offsets
         selection.removeAllRanges();
-        const restoredRange = document.createRange();
-        
-        try {
-          // Try to restore the exact range
-          restoredRange.setStart(startContainer, startOffset);
-          restoredRange.setEnd(endContainer, endOffset);
-          selection.addRange(restoredRange);
-        } catch (exactRangeError) {
-          console.warn('Exact selection restoration failed, using fallback', exactRangeError);
-          // Fallback to original range object if exact restoration fails
-          try {
-            selection.addRange(originalRange);
-          } catch (fallbackError) {
-            console.error('All selection restoration methods failed', fallbackError);
-            // Last resort: just focus the content area
-            contentArea.focus();
+        selection.addRange(originalRange);
+      } catch (error) {
+        console.error('Error restoring selection after list indentation:', error);
+      }
+      
+      // If we successfully processed a list item, stop here
+      if (success) {
+        // Save history after changes
+        if (anyChangesApplied) {
+          window._pendingHistorySave = requestAnimationFrame(() => {
+            saveHistory(ActionTypes.COMPLETE);
+          });
+        }
+        return;
+      }
+    }
+    
+    console.log(`Tab key (${direction}) processing paragraph indentation...`);
+    
+    // For Shift+Tab (decrease indentation): Find any paragraph with indentation
+    if (e.shiftKey) {
+      // Get all paragraphs in the selection or the current paragraph
+      let paragraphsToCheck = [];
+      
+      if (!range.collapsed) {
+        // Try to find all paragraphs in the selection
+        paragraphsToCheck = getSelectedParagraphs(range);
+      } else {
+        // For cursor only, just use the current paragraph
+        const paragraph = findParagraphNode(container);
+        if (paragraph) {
+          paragraphsToCheck = [paragraph];
+        }
+      }
+      
+      // Check if any paragraph has indentation that can be decreased
+      let anyIndented = false;
+      paragraphsToCheck.forEach(para => {
+        if (para) {
+          const computedStyle = window.getComputedStyle(para);
+          const currentMarginLeft = parseInt(computedStyle.marginLeft) || 0;
+          
+          console.log(`Checking paragraph for indentation: margin-left = ${currentMarginLeft}px`);
+          
+          if (currentMarginLeft > 0) {
+            anyIndented = true;
+            const success = applyIndentation(para, direction);
+            if (success) anyChangesApplied = true;
           }
         }
+      });
+      
+      // If we processed some paragraphs, restore selection and update
+      if (anyIndented) {
+        // Update content to reflect changes
+        handleContentChange({ target: contentArea }, pageNumber);
+        
+        // Try to restore the selection
+        try {
+          selection.removeAllRanges();
+          selection.addRange(originalRange);
+        } catch (error) {
+          console.error('Error restoring selection after Shift+Tab:', error);
+        }
+        
+        // Save history if changes were made
+        if (anyChangesApplied) {
+          window._pendingHistorySave = requestAnimationFrame(() => {
+            saveHistory(ActionTypes.COMPLETE);
+          });
+        }
+        
+        return;
+      }
+    }
+    
+    // For normal Tab and other cases, use the enhanced indentation system
+    const result = handleIndent(direction, pageNumber);
+    
+    // If handleIndent was successful, it handled restoring the selection
+    // and saving history, so we can stop here
+    if (result) return;
+    
+    // Fallback for when no paragraph is found but there's a text selection
+    if (!range.collapsed && !e.shiftKey) {
+      // For Tab with text selection but no identified paragraph,
+      // try to wrap the selection in a paragraph and indent it
+      try {
+        // Create a temporary paragraph to hold the selection content
+        const span = document.createElement('span');
+        span.appendChild(range.extractContents());
+        
+        // Insert the temporary span
+        range.insertNode(span);
+        
+        // Apply indentation to the span
+        applyIndentation(span, 'increase');
+        anyChangesApplied = true;
+        
+        // Restore selection as best we can
+        selection.removeAllRanges();
+        const newRange = document.createRange();
+        newRange.selectNodeContents(span);
+        selection.addRange(newRange);
       } catch (error) {
-        console.error('Error restoring selection after tab indentation:', error);
+        console.error('Error handling tab with text selection:', error);
+        
+        // Last resort: try to restore original selection
+        try {
+          selection.removeAllRanges();
+          selection.addRange(originalRange);
+        } catch (restoreError) {
+          console.error('Failed to restore selection after tab error:', restoreError);
+        }
       }
     } 
     // Fallback when no paragraph found: just insert tab spacing
     else if (!e.shiftKey) { // Only for Tab, not Shift+Tab
       document.execCommand('insertHTML', false, '&emsp;');
+      anyChangesApplied = true;
     }
     
-    // Save history after changes for undo/redo
-    // Use requestAnimationFrame for better performance and to allow cancellation
-    window._pendingHistorySave = requestAnimationFrame(() => {
-      saveHistory(ActionTypes.COMPLETE);
-    });
+    // Update content to reflect changes
+    if (anyChangesApplied) {
+      handleContentChange({ target: contentArea }, pageNumber);
+      
+      // Save history after changes for undo/redo
+      // Use requestAnimationFrame for better performance and to allow cancellation
+      window._pendingHistorySave = requestAnimationFrame(() => {
+        saveHistory(ActionTypes.COMPLETE);
+      });
+    }
   };
 
-  // Comprehensive method to find all paragraphs in a selection
-  const findAllParagraphsInSelection = (range, contentArea) => {
-    if (!range || !contentArea) return [];
+  // Enhanced function to get all selected paragraphs reliably
+  const getSelectedParagraphs = (range) => {
+    if (!range) return [];
     
+    console.log('Getting selected paragraphs for range:', range);
     const result = [];
     
-    // Method 1: Check all paragraphs in content area
+    // Method 1: Check all paragraphs in the document
     const allParagraphs = Array.from(
-      contentArea.querySelectorAll('p, div:not([data-content-area]), h1, h2, h3, h4, h5, h6')
+      document.querySelectorAll('p, div:not([data-content-area]), h1, h2, h3, h4, h5, h6')
     );
     
     // Filter to paragraphs that intersect with the selection
@@ -384,11 +408,13 @@ const EditorContent = () => {
       try {
         return range.intersectsNode(node);
       } catch (error) {
+        console.warn('Error checking if range intersects node:', error);
         return false;
       }
     });
     
     if (intersectingParagraphs.length > 0) {
+      console.log(`Found ${intersectingParagraphs.length} paragraphs via intersection`);
       return intersectingParagraphs;
     }
     
@@ -403,6 +429,7 @@ const EditorContent = () => {
     const endPara = findParagraphNode(endNode);
     
     if (startPara === endPara && startPara) {
+      console.log('Start and end paragraph are the same');
       return [startPara];
     }
     
@@ -437,12 +464,44 @@ const EditorContent = () => {
         result.push(endPara);
       }
       
-      return result;
+      if (result.length > 0) {
+        console.log(`Found ${result.length} paragraphs via traversal`);
+        return result;
+      }
     }
     
     // Method 3: Fallback to common ancestor paragraph
     const commonPara = findParagraphNode(range.commonAncestorContainer);
-    return commonPara ? [commonPara] : [];
+    if (commonPara) {
+      console.log('Found paragraph via common ancestor');
+      return [commonPara];
+    }
+    
+    // Method 4: Ultimate fallback - any element with text content in the selection
+    const contentArea = findContentArea(range.commonAncestorContainer);
+    if (contentArea) {
+      // Look for any element that could be considered a paragraph-like block
+      const blockElements = contentArea.querySelectorAll('*');
+      for (let i = 0; i < blockElements.length; i++) {
+        const element = blockElements[i];
+        if (element.textContent && 
+            element.textContent.trim() && 
+            element !== contentArea &&
+            !['UL', 'OL', 'TABLE', 'TBODY', 'TR'].includes(element.nodeName)) {
+          try {
+            if (range.intersectsNode(element)) {
+              console.log('Found element with text content intersecting selection:', element);
+              result.push(element);
+            }
+          } catch (error) {
+            console.warn('Error in fallback paragraph detection:', error);
+          }
+        }
+      }
+    }
+    
+    console.log(`Final result: ${result.length} paragraphs found`);
+    return result;
   };
 
   // Enhanced paragraph indentation with perfect Google Docs behavior
@@ -450,6 +509,8 @@ const EditorContent = () => {
     if (!paragraph) return false;
     
     try {
+      console.log(`Applying ${direction} indentation to:`, paragraph);
+      
       // Get content area and page number for content updates
       const contentArea = findContentArea(paragraph);
       const pageNumber = contentArea ? parseInt(contentArea.getAttribute('data-page') || '1') : 1;
@@ -458,12 +519,33 @@ const EditorContent = () => {
       const computedStyle = window.getComputedStyle(paragraph);
       const currentMarginLeft = parseInt(computedStyle.marginLeft) || 0;
       
+      console.log(`Current margin-left: ${currentMarginLeft}px`);
+      
       // Google Docs indentation step (0.5 inch = 40px at 96 DPI)
       const INDENT_STEP = 40; 
       const MAX_INDENT_LEVEL = 10; // Prevent excessive indentation
       
       // Track if any changes were made
       let indentationChanged = false;
+      
+      // Special handling for span elements (often used for selections)
+      // If it's a span, we might need to convert to a div for proper indentation
+      if (paragraph.tagName === 'SPAN' && !paragraph.getAttribute('data-indent-level')) {
+        console.log('Processing span element for indentation');
+        
+        // If this is a span inside a paragraph, apply to the parent paragraph instead
+        const parentParagraph = findParagraphNode(paragraph.parentNode);
+        if (parentParagraph && parentParagraph !== paragraph) {
+          console.log('Found parent paragraph, applying indentation to parent instead');
+          return applyIndentation(parentParagraph, direction);
+        }
+        
+        // If this is a standalone span, convert to a div if needed
+        if (!paragraph.style.display || paragraph.style.display === 'inline') {
+          console.log('Converting inline span to block element for indentation');
+          paragraph.style.display = 'block';
+        }
+      }
       
       // Increase indentation
       if (direction === 'increase') {
@@ -473,6 +555,7 @@ const EditorContent = () => {
         
         // Calculate new indentation
         const newMargin = currentMarginLeft + INDENT_STEP;
+        console.log(`Increasing indent to: ${newMargin}px`);
         
         // Better handling of existing styles
         const existingStyles = paragraph.style.cssText || '';
@@ -502,6 +585,7 @@ const EditorContent = () => {
         if (currentMarginLeft >= INDENT_STEP) {
           // Calculate new indentation (never below zero)
           const newMargin = Math.max(0, currentMarginLeft - INDENT_STEP);
+          console.log(`Decreasing indent to: ${newMargin}px`);
           
           // Better handling of existing styles
           const existingStyles = paragraph.style.cssText || '';
@@ -531,9 +615,10 @@ const EditorContent = () => {
           }, 200);
           
           return true;
+        } else {
+          console.log('Cannot decrease indent: already at minimum');
+          return false;
         }
-        
-        return false;
       }
       
       // If indentation changed, update content and provide visual feedback
@@ -687,40 +772,154 @@ const EditorContent = () => {
 
   // Comprehensive indentation handler for indent/outdent buttons
   const handleIndent = (direction, pageNumber) => {
+    console.log(`handleIndent called with direction: ${direction}, page: ${pageNumber}`);
+    
     // Save history before making changes
     saveHistory(ActionTypes.COMPLETE);
     
     const selection = window.getSelection();
-    if (!selection.rangeCount) return;
+    if (!selection.rangeCount) {
+      console.log('No selection found, aborting indent');
+      return false;
+    }
     
     const range = selection.getRangeAt(0);
     const originalRange = range.cloneRange(); // Save for later restoration
     
     // Find the content area
     const contentArea = findContentArea(range.commonAncestorContainer);
-    if (!contentArea) return;
+    if (!contentArea) {
+      console.log('No content area found, aborting indent');
+      return false;
+    }
+    
+    console.log('Content area found:', contentArea);
+    console.log('Selection is collapsed:', range.collapsed);
+    
+    // Track if any changes were applied (for undo/redo)
+    let anyChangesApplied = false;
     
     // Handle multiple paragraphs if text is selected
     if (!range.collapsed) {
-      const paragraphs = getSelectedParagraphs(range);
-      if (paragraphs.length > 0) {
-        paragraphs.forEach(para => {
-          applyIndentation(para, direction);
+      console.log('Processing selection with text');
+      
+      // First check if selection contains list items
+      const listItems = getSelectedListItems(range);
+      console.log(`Found ${listItems.length} list items in selection`);
+      
+      if (listItems.length > 0) {
+        // Handle list items in selection
+        listItems.forEach(listItem => {
+          console.log('Processing list item:', listItem);
+          const success = handleListIndentation(listItem, direction === 'increase' ? 'indent' : 'outdent');
+          if (success) anyChangesApplied = true;
         });
-      } else {
-        // Fallback for when getSelectedParagraphs fails
-        // Find the current paragraph
-        let container = range.commonAncestorContainer;
-        if (container.nodeType === Node.TEXT_NODE) {
-          container = container.parentNode;
-        }
+      }
+      
+      // Also handle regular paragraphs in the same selection
+      const paragraphs = getSelectedParagraphs(range);
+      console.log(`Found ${paragraphs.length} paragraphs in selection`);
+      
+      // Filter out paragraphs that are part of list items we already processed
+      const nonListParagraphs = paragraphs.filter(para => {
+        // Skip paragraphs inside list items we've already handled
+        return !listItems.some(li => li.contains(para));
+      });
+      
+      console.log(`After filtering, processing ${nonListParagraphs.length} non-list paragraphs`);
+      
+      if (nonListParagraphs.length > 0) {
+        nonListParagraphs.forEach(para => {
+          console.log('Processing paragraph:', para);
+          // For decrease indent, only apply if there's actual indentation to decrease
+          if (direction === 'decrease') {
+            const computedStyle = window.getComputedStyle(para);
+            const currentMarginLeft = parseInt(computedStyle.marginLeft) || 0;
+            console.log(`Paragraph has margin-left: ${currentMarginLeft}px`);
+            
+            // Only apply decrease if there's actual margin to decrease
+            if (currentMarginLeft > 0) {
+              const success = applyIndentation(para, direction);
+              if (success) anyChangesApplied = true;
+            }
+          } else {
+            // For increase, always apply
+            const success = applyIndentation(para, direction);
+            if (success) anyChangesApplied = true;
+          }
+        });
+      }
+      
+      // If we didn't find any paragraphs or list items, try a fallback method
+      if (!anyChangesApplied && paragraphs.length === 0 && listItems.length === 0) {
+        console.log('No paragraphs or list items found, trying fallback methods');
         
-        const paragraph = findParagraphNode(container);
-        if (paragraph) {
-          applyIndentation(paragraph, direction);
+        // FALLBACK 1: Try to directly create a paragraph from the selection
+        try {
+          console.log('Attempting to create a paragraph from selection');
+          // Create a new paragraph to wrap the selection
+          const tempSpan = document.createElement('span');
+          const extractedContents = range.extractContents();
+          tempSpan.appendChild(extractedContents);
+          range.insertNode(tempSpan);
+          
+          // Apply indentation to the temporary span
+          const success = applyIndentation(tempSpan, direction);
+          if (success) {
+            anyChangesApplied = true;
+            console.log('Successfully applied indentation to created span');
+          }
+        } catch (error) {
+          console.error('Error in fallback 1:', error);
+          
+          // FALLBACK 2: Try to find the closest paragraph or container
+          try {
+            // Fallback for when our selection methods fail
+            let container = range.commonAncestorContainer;
+            if (container.nodeType === Node.TEXT_NODE) {
+              container = container.parentNode;
+            }
+            
+            console.log('Fallback processing container:', container);
+            
+            // Check if in a list
+            const listItem = getListItem(container);
+            if (listItem) {
+              const success = handleListIndentation(listItem, direction === 'increase' ? 'indent' : 'outdent');
+              if (success) anyChangesApplied = true;
+            } else {
+              const paragraph = findParagraphNode(container);
+              if (paragraph) {
+                console.log('Found paragraph in fallback:', paragraph);
+                // For decrease, only if there's margin to decrease
+                if (direction === 'decrease') {
+                  const computedStyle = window.getComputedStyle(paragraph);
+                  const currentMarginLeft = parseInt(computedStyle.marginLeft) || 0;
+                  if (currentMarginLeft > 0) {
+                    const success = applyIndentation(paragraph, direction);
+                    if (success) anyChangesApplied = true;
+                  }
+                } else {
+                  const success = applyIndentation(paragraph, direction);
+                  if (success) anyChangesApplied = true;
+                }
+              } else {
+                // FALLBACK 3: Try the direct parent of the selection if all else fails
+                console.log('Trying direct parent as last resort');
+                const directParent = container;
+                if (directParent && directParent !== contentArea) {
+                  const success = applyIndentation(directParent, direction);
+                  if (success) anyChangesApplied = true;
+                }
+              }
+            }
+          } catch (fallbackError) {
+            console.error('Error in fallback 2:', fallbackError);
+          }
         }
       }
     } else {
+      console.log('Processing cursor placement (no selection)');
       // Just cursor placement - handle current element
       let container = range.commonAncestorContainer;
       if (container.nodeType === Node.TEXT_NODE) {
@@ -730,12 +929,26 @@ const EditorContent = () => {
       // Check if in list item
       const listItem = getListItem(container);
       if (listItem) {
-        handleListIndentation(listItem, direction === 'increase' ? 'indent' : 'outdent');
+        console.log('Found cursor in list item');
+        const success = handleListIndentation(listItem, direction === 'increase' ? 'indent' : 'outdent');
+        if (success) anyChangesApplied = true;
       } else {
         // Regular paragraph
         const paragraph = findParagraphNode(container);
         if (paragraph) {
-          applyIndentation(paragraph, direction);
+          console.log('Found cursor in paragraph');
+          // For decrease, only if there's margin to decrease
+          if (direction === 'decrease') {
+            const computedStyle = window.getComputedStyle(paragraph);
+            const currentMarginLeft = parseInt(computedStyle.marginLeft) || 0;
+            if (currentMarginLeft > 0) {
+              const success = applyIndentation(paragraph, direction);
+              if (success) anyChangesApplied = true;
+            }
+          } else {
+            const success = applyIndentation(paragraph, direction);
+            if (success) anyChangesApplied = true;
+          }
         }
       }
     }
@@ -746,13 +959,24 @@ const EditorContent = () => {
     }
     
     // Restore the selection
-    selection.removeAllRanges();
-    selection.addRange(originalRange);
+    try {
+      selection.removeAllRanges();
+      selection.addRange(originalRange);
+    } catch (error) {
+      console.error('Error restoring selection after indent:', error);
+    }
     
-    // Save history after changes
-    setTimeout(() => {
-      saveHistory(ActionTypes.COMPLETE);
-    }, 10);
+    // Save history after changes (but only if something actually changed)
+    if (anyChangesApplied) {
+      console.log('Changes applied, saving to history');
+      setTimeout(() => {
+        saveHistory(ActionTypes.COMPLETE);
+      }, 10);
+    } else {
+      console.log('No changes were applied during indentation');
+    }
+    
+    return anyChangesApplied;
   };
 
   // Helper function to find the content area containing a node
@@ -821,11 +1045,53 @@ const EditorContent = () => {
         prevLi.appendChild(sublist);
       }
       
+      // Determine current nesting level
+      let level = 1;
+      let currentParent = parentList;
+      while (currentParent.parentNode && currentParent.parentNode.nodeName === 'LI') {
+        level++;
+        currentParent = currentParent.parentNode.parentNode;
+      }
+      
       // Move this item to the sublist
       sublist.appendChild(listItem);
       
-      // Update styles based on new nesting level
-      updateListStyles(sublist);
+      // Apply appropriate styles based on nesting level
+      if (sublist.nodeName === 'UL') {
+        // Bullet styles cycle: disc → circle → square → disc
+        const bulletStyles = ['disc', 'circle', 'square'];
+        const styleIndex = level % bulletStyles.length;
+        sublist.style.listStyleType = bulletStyles[styleIndex];
+      } else if (sublist.nodeName === 'OL') {
+        // Number styles cycle: decimal → lower-alpha → lower-roman → decimal
+        const numberStyles = ['decimal', 'lower-alpha', 'lower-roman'];
+        const styleIndex = level % numberStyles.length;
+        sublist.style.listStyleType = numberStyles[styleIndex];
+      }
+      
+      // Update all numbering for ordered lists
+      if (parentList.nodeName === 'OL') {
+        // Force browser to recalculate numbering by toggling display
+        const originalDisplay = parentList.style.display;
+        parentList.style.display = 'none';
+        setTimeout(() => {
+          parentList.style.display = originalDisplay;
+        }, 10);
+      }
+      
+      // Google Docs-like animation and visual feedback
+      listItem.style.transition = 'margin-left 0.15s ease-out, background-color 0.2s ease-out';
+      listItem.style.backgroundColor = 'rgba(232, 240, 254, 0.3)';
+      
+      setTimeout(() => {
+        listItem.style.backgroundColor = '';
+        setTimeout(() => {
+          listItem.style.transition = '';
+        }, 200);
+      }, 150);
+      
+      // Update styles for the entire list hierarchy
+      updateListStyles(findRootList(sublist));
       
       // Save after changes
       setTimeout(() => {
@@ -841,6 +1107,10 @@ const EditorContent = () => {
       const greatGrandparentList = grandparent.parentNode;
       if (!greatGrandparentList) return false;
       
+      // Apply visual feedback before moving
+      listItem.style.transition = 'margin-left 0.15s ease-out, background-color 0.2s ease-out';
+      listItem.style.backgroundColor = 'rgba(232, 240, 254, 0.3)';
+      
       // Move this item after its grandparent (Google Docs behavior)
       if (grandparent.nextSibling) {
         greatGrandparentList.insertBefore(listItem, grandparent.nextSibling);
@@ -852,6 +1122,47 @@ const EditorContent = () => {
       if (parentList.children.length === 0) {
         grandparent.removeChild(parentList);
       }
+      
+      // Update styles based on new nesting level
+      let level = 0;
+      let currentParent = greatGrandparentList;
+      while (currentParent.parentNode && currentParent.parentNode.nodeName === 'LI') {
+        level++;
+        currentParent = currentParent.parentNode.parentNode;
+      }
+      
+      // Apply appropriate list style based on level
+      if (greatGrandparentList.nodeName === 'UL') {
+        // Bullet styles: disc → circle → square → disc
+        const bulletStyles = ['disc', 'circle', 'square'];
+        const styleIndex = level % bulletStyles.length;
+        // Apply to the list item's marker
+        listItem.style.listStyleType = bulletStyles[styleIndex];
+      } else if (greatGrandparentList.nodeName === 'OL') {
+        // Number styles: decimal → lower-alpha → lower-roman → decimal
+        const numberStyles = ['decimal', 'lower-alpha', 'lower-roman'];
+        const styleIndex = level % numberStyles.length;
+        // Apply to the list item's marker
+        listItem.style.listStyleType = numberStyles[styleIndex];
+      }
+      
+      // Update numbering for ordered lists
+      if (greatGrandparentList.nodeName === 'OL') {
+        // Force browser to recalculate numbering by toggling display
+        const originalDisplay = greatGrandparentList.style.display;
+        greatGrandparentList.style.display = 'none';
+        setTimeout(() => {
+          greatGrandparentList.style.display = originalDisplay;
+        }, 10);
+      }
+      
+      // Fade out highlight
+      setTimeout(() => {
+        listItem.style.backgroundColor = '';
+        setTimeout(() => {
+          listItem.style.transition = '';
+        }, 200);
+      }, 150);
       
       // Update styles for all affected lists
       updateListStyles(greatGrandparentList);
@@ -1343,97 +1654,56 @@ const EditorContent = () => {
 
   // REPLACE the existing function body with this enhanced implementation
   const updateListStyles = (list) => {
-    if (!list || (list.nodeName !== 'UL' && list.nodeName !== 'OL')) return;
+    if (!list) return;
     
-    // Recursively process the list and all nested lists
+    // Enhanced recursive function to process list and all nested lists
     const processListRecursively = (listElement, level = 1) => {
       if (!listElement) return;
       
-      // Set data-list-level attribute on the list
-      listElement.setAttribute('data-list-level', level);
+      // Apply appropriate style based on list type and nesting level
+      if (listElement.nodeName === 'UL') {
+        // Bullet styles cycle: disc → circle → square → disc
+        const bulletStyles = ['disc', 'circle', 'square'];
+        const styleIndex = (level - 1) % bulletStyles.length;
+        listElement.style.listStyleType = bulletStyles[styleIndex];
+      } else if (listElement.nodeName === 'OL') {
+        // Number styles cycle: decimal → lower-alpha → lower-roman → decimal
+        const numberStyles = ['decimal', 'lower-alpha', 'lower-roman'];
+        const styleIndex = (level - 1) % numberStyles.length;
+        listElement.style.listStyleType = numberStyles[styleIndex];
+      }
       
-      // Process each list item
-      Array.from(listElement.children).forEach(li => {
-        if (li.nodeName !== 'LI') return;
-        
-        // Set data-list-level attribute on the list item
-        li.setAttribute('data-list-level', level);
-        
-        // Set appropriate bullet style based on level
-        if (listElement.nodeName === 'UL') {
-          // Check if this list has a manually chosen style
-          const customStyle = listElement.getAttribute('data-bullet-style');
+      // Process all list items
+      Array.from(listElement.children).forEach(child => {
+        if (child.nodeName === 'LI') {
+          // Process any nested lists with increased level
+          Array.from(child.children).forEach(grandchild => {
+            if (grandchild.nodeName === 'UL' || grandchild.nodeName === 'OL') {
+              processListRecursively(grandchild, level + 1);
+            }
+          });
           
-          if (customStyle) {
-            // Use the manually selected style (keeps user selection)
-            if (customStyle === 'triangle') {
-              listElement.style.listStyleType = 'disclosure-closed';
-              listElement.classList.add('triangle-bullets');
-            } else {
-              listElement.style.listStyleType = customStyle;
-              listElement.classList.remove('triangle-bullets');
-            }
+          // Apply visual style to list item based on its level
+          if (level > 1) {
+            // Add subtle margin to show nesting (Google Docs style)
+            child.style.position = 'relative';
           } else {
-            // No manual selection - apply default Google Docs style for this level
-            listElement.classList.remove('triangle-bullets');
-            
-            switch (level % 4) {
-              case 1: // Level 1
-                listElement.style.listStyleType = 'disc';
-                break;
-              case 2: // Level 2
-                listElement.style.listStyleType = 'circle';
-                break;
-              case 3: // Level 3
-                listElement.style.listStyleType = 'square';
-                break;
-              case 0: // Level 4
-                listElement.style.listStyleType = 'disclosure-closed';
-                listElement.classList.add('triangle-bullets');
-                break;
-            }
-          }
-        } else if (listElement.nodeName === 'OL') {
-          // Handle numbered list styles at different levels
-          const customStyle = listElement.getAttribute('data-number-style');
-          
-          if (customStyle) {
-            listElement.style.listStyleType = customStyle;
-          } else {
-            switch (level % 5) {
-              case 1:
-                listElement.style.listStyleType = 'decimal';
-                break;
-              case 2:
-                listElement.style.listStyleType = 'lower-alpha';
-                break;
-              case 3:
-                listElement.style.listStyleType = 'lower-roman';
-                break;
-              case 4:
-                listElement.style.listStyleType = 'upper-alpha';
-                break;
-              case 0:
-                listElement.style.listStyleType = 'upper-roman';
-                break;
-            }
+            child.style.position = '';
           }
         }
-        
-        // Find nested lists within this li and process them
-        const nestedLists = li.querySelectorAll(':scope > ul, :scope > ol');
-        nestedLists.forEach(nestedList => {
-          processListRecursively(nestedList, level + 1);
-        });
       });
     };
     
+    // Start processing from the root list
     processListRecursively(list);
     
-    // Also find the root list to update all levels in hierarchy
-    const rootList = findRootList(list);
-    if (rootList && rootList !== list) {
-      processListRecursively(rootList, 1);
+    // Force browser to refresh list numbering for ordered lists
+    if (list.nodeName === 'OL') {
+      const originalDisplay = list.style.display || '';
+      list.style.display = 'none';
+      setTimeout(() => {
+        list.style.display = originalDisplay;
+      }, 10);
     }
   };
 
@@ -1642,24 +1912,34 @@ const EditorContent = () => {
     
     // Listen for editor-indent events from toolbar buttons
     const handleEditorIndentEvent = (e) => {
+      console.log('Editor indent event received:', e.detail);
       const { direction } = e.detail;
       const currentPage = getCurrentPageNumber();
+      console.log(`Executing indent ${direction} on page ${currentPage}`);
       handleIndent(direction, currentPage);
     };
     
     // Keyboard shortcuts for indentation (Ctrl+[ and Ctrl+])
     const handleKeyboardShortcuts = (e) => {
+      // Tab key for indent/outdent (handled by handleTabGlobally)
+      
+      // Ctrl+] or Cmd+] for indent
       if ((e.ctrlKey || e.metaKey) && e.key === ']') {
         e.preventDefault();
         const currentPage = getCurrentPageNumber();
+        console.log('Keyboard shortcut: Increase indent (Ctrl+])');
         handleIndent('increase', currentPage);
       }
       
+      // Ctrl+[ or Cmd+[ for outdent
       if ((e.ctrlKey || e.metaKey) && e.key === '[') {
         e.preventDefault();
         const currentPage = getCurrentPageNumber();
+        console.log('Keyboard shortcut: Decrease indent (Ctrl+[)');
         handleIndent('decrease', currentPage);
       }
+      
+      // Handle Tab/Shift+Tab globally using the dedicated global handler
     };
     
     // Set up all event listeners with appropriate capture options
@@ -1676,99 +1956,6 @@ const EditorContent = () => {
       document.removeEventListener('keydown', handleKeyboardShortcuts);
     };
   }, []);
-
-  // Helper function to get all paragraphs within a selection range
-  const getSelectedParagraphs = (range) => {
-    if (!range) return [];
-    
-    // First, identify the current paragraph even if no text is selected
-    if (range.collapsed) {
-      let node = range.startContainer;
-      if (node.nodeType === Node.TEXT_NODE) {
-        node = node.parentNode;
-      }
-      const paragraph = findParagraphNode(node);
-      return paragraph ? [paragraph] : [];
-    }
-    
-    // Handle text selection case - multiple approaches for robustness
-    try {
-      // Approach 1: Direct ancestor method
-      let startNode = range.startContainer;
-      let endNode = range.endContainer;
-      
-      // Get to element nodes if we're in text nodes
-      if (startNode.nodeType === Node.TEXT_NODE) startNode = startNode.parentNode;
-      if (endNode.nodeType === Node.TEXT_NODE) endNode = endNode.parentNode;
-      
-      // Find the paragraphs
-      const startPara = findParagraphNode(startNode);
-      const endPara = findParagraphNode(endNode);
-      
-      // If same paragraph, just return it
-      if (startPara && startPara === endPara) {
-        return [startPara];
-      }
-      
-      // Multiple paragraphs - find all between start and end
-      if (startPara && endPara) {
-        const result = [startPara];
-        let currentNode = startPara.nextElementSibling;
-        
-        // Collect all paragraphs between start and end
-        while (currentNode && currentNode !== endPara) {
-          if (currentNode.nodeType === Node.ELEMENT_NODE) {
-            const para = findParagraphNode(currentNode);
-            if (para && !result.includes(para)) {
-              result.push(para);
-            }
-          }
-          currentNode = currentNode.nextElementSibling;
-        }
-        
-        // Add the end paragraph if not already included
-        if (!result.includes(endPara)) {
-          result.push(endPara);
-        }
-        
-        return result;
-      }
-      
-      // Approach 2: Get all paragraphs in the content area and filter
-      const contentArea = findContentArea(range.commonAncestorContainer);
-      if (contentArea) {
-        const allParagraphs = Array.from(contentArea.querySelectorAll('p, div:not([data-content-area]), h1, h2, h3, h4, h5, h6'));
-        
-        // Filter to paragraphs within the range
-        return allParagraphs.filter(para => {
-          // Skip non-paragraph divs
-          if (para.tagName === 'DIV' && (para.getAttribute('data-content-area') === 'true' || para.querySelector('[data-content-area="true"]'))) {
-            return false;
-          }
-          
-          // Check if paragraph is at least partially within selection
-          const paraRange = document.createRange();
-          paraRange.selectNode(para);
-          
-          return range.intersectsNode(para);
-        });
-      }
-      
-      // Fallback: Try to get paragraphs from selection directly
-      const container = range.commonAncestorContainer;
-      if (container.nodeType === Node.ELEMENT_NODE) {
-        // Direct query on the fragment or container
-        const paragraph = findParagraphNode(container);
-        return paragraph ? [paragraph] : [];
-      }
-    } catch (error) {
-      console.error('Error finding selected paragraphs:', error);
-    }
-    
-    // Final fallback for a single paragraph
-    const paragraph = findParagraphNode(range.commonAncestorContainer);
-    return paragraph ? [paragraph] : [];
-  };
 
   // Handle special keys for lists (Tab, Enter, Backspace)
   const handleListSpecialKeys = (e, listItem) => {
@@ -1946,6 +2133,97 @@ const EditorContent = () => {
       console.error('Error handling Enter key:', error);
       return false;
     }
+  };
+
+  // Helper function to get all list items in a selection range
+  const getSelectedListItems = (range) => {
+    if (!range) return [];
+    
+    const result = [];
+    
+    // Method 1: Check all list items in the entire document
+    const allListItems = Array.from(document.querySelectorAll('li'));
+    
+    // Filter to list items that intersect with the selection
+    const intersectingListItems = allListItems.filter(node => {
+      try {
+        return range.intersectsNode(node);
+      } catch (error) {
+        return false;
+      }
+    });
+    
+    if (intersectingListItems.length > 0) {
+      return intersectingListItems;
+    }
+    
+    // Method 2: Direct traversal between start and end
+    let startNode = range.startContainer;
+    let endNode = range.endContainer;
+    
+    if (startNode.nodeType === Node.TEXT_NODE) startNode = startNode.parentNode;
+    if (endNode.nodeType === Node.TEXT_NODE) endNode = endNode.parentNode;
+    
+    const startListItem = getListItem(startNode);
+    const endListItem = getListItem(endNode);
+    
+    if (startListItem === endListItem && startListItem) {
+      return [startListItem];
+    }
+    
+    if (startListItem && endListItem) {
+      result.push(startListItem);
+      
+      let current = startListItem;
+      while (current && current !== endListItem) {
+        if (current.nextElementSibling) {
+          current = current.nextElementSibling;
+          if (current.nodeName === 'LI' && !result.includes(current)) {
+            result.push(current);
+          }
+        } else {
+          // Move up and over to get to the next list item
+          let parent = current.parentNode;
+          while (parent && !parent.nextElementSibling) {
+            parent = parent.parentNode;
+          }
+          if (!parent || !parent.nextElementSibling) break;
+          
+          current = parent.nextElementSibling;
+          if (current.nodeName === 'LI' && !result.includes(current)) {
+            result.push(current);
+          } else {
+            // If not a list item, check children
+            const listItem = current.querySelector('li');
+            if (listItem && !result.includes(listItem)) {
+              result.push(listItem);
+              current = listItem;
+            }
+          }
+        }
+      }
+      
+      if (endListItem && !result.includes(endListItem)) {
+        result.push(endListItem);
+      }
+      
+      return result;
+    }
+    
+    // Method 3: Try to find list items within the common ancestor
+    const commonAncestor = range.commonAncestorContainer;
+    if (commonAncestor) {
+      const listItems = commonAncestor.querySelectorAll('li');
+      if (listItems.length > 0) {
+        listItems.forEach(item => {
+          if (range.intersectsNode(item) && !result.includes(item)) {
+            result.push(item);
+          }
+        });
+      }
+    }
+    
+    return result;
   };
 
   return (
