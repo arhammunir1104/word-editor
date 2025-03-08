@@ -1276,74 +1276,118 @@ const EditorToolbar = () => {
   const handleIndent = (direction) => {
     console.log(`Indent button clicked: ${direction}`);
     
-    // Save current selection before focusing anything
+    // Save current selection before doing anything
     const selection = window.getSelection();
     let savedRange = null;
+    let selectionText = '';
     
     if (selection && selection.rangeCount > 0) {
       savedRange = selection.getRangeAt(0).cloneRange();
-      console.log('Saved current selection range');
+      selectionText = selection.toString();
+      console.log('Saved current selection range with text:', selectionText);
     }
     
-    // Try to get the current editor content area
+    // WORKAROUND: Force direct application of the indentation
+    // This is a more reliable approach that bypasses the event system
     const contentArea = document.querySelector('[data-content-area="true"]');
     if (contentArea) {
-      // Focus the content area to ensure it receives the event
+      // Focus the content area
       contentArea.focus();
       
-      // Restore the selection if we had one
-      if (savedRange) {
-        console.log('Restoring saved selection range');
+      // Restore selection if needed
+      if (savedRange && selectionText) {
         try {
+          console.log('Restoring selection range with direct DOM manipulation');
           selection.removeAllRanges();
           selection.addRange(savedRange);
-        } catch (error) {
-          console.error('Error restoring selection:', error);
+        } catch(e) {
+          console.error('Error restoring selection:', e);
         }
       }
-    }
-    
-    // Wait a tiny bit to ensure focus and selection are properly set
-    setTimeout(() => {
-      console.log('Dispatching editor-indent event');
       
-      // Create a custom event for the EditorContent component to handle
-      const event = new CustomEvent('editor-indent', { 
-        detail: { direction } 
-      });
-      
-      // Dispatch the event to the document so EditorContent can catch it
-      document.dispatchEvent(event);
-      
-      // Add a direct fallback approach for older browsers or if custom events fail
-      try {
-        console.log('Trying fallback indent method');
-        if (contentArea) {
-          // Try to directly apply the indent via keyboard shortcut simulation
-          if (direction === 'increase') {
-            // Simulate Ctrl+] for increase indent
-            const increaseEvent = new KeyboardEvent('keydown', {
-              key: ']',
-              code: 'BracketRight',
-              ctrlKey: true,
-              bubbles: true
-            });
-            document.dispatchEvent(increaseEvent);
-          } else {
-            // Simulate Ctrl+[ for decrease indent
-            const decreaseEvent = new KeyboardEvent('keydown', {
-              key: '[',
-              code: 'BracketLeft',
-              ctrlKey: true,
-              bubbles: true
-            });
-            document.dispatchEvent(decreaseEvent);
+      // Give the browser a moment to process the focus and selection
+      setTimeout(() => {
+        // Try three different ways to ensure the indentation is applied:
+        
+        // 1. Direct method: Use keyboard shortcuts 
+        if (direction === 'increase') {
+          document.execCommand('indent', false, null);
+          
+          // Simulate Ctrl+] as fallback 
+          const shortcutEvent = new KeyboardEvent('keydown', {
+            key: ']',
+            code: 'BracketRight',
+            ctrlKey: true,
+            bubbles: true,
+            cancelable: true
+          });
+          document.dispatchEvent(shortcutEvent);
+        } else {
+          document.execCommand('outdent', false, null);
+          
+          // Simulate Ctrl+[ as fallback
+          const shortcutEvent = new KeyboardEvent('keydown', {
+            key: '[',
+            code: 'BracketLeft',
+            ctrlKey: true,
+            bubbles: true,
+            cancelable: true
+          });
+          document.dispatchEvent(shortcutEvent);
+        }
+        
+        // 2. Custom event approach
+        console.log('Dispatching editor-indent event');
+        document.dispatchEvent(new CustomEvent('editor-indent', { 
+          detail: { 
+            direction,
+            fromToolbar: true,
+            selectionData: selectionText ? {
+              text: selectionText,
+              startOffset: savedRange?.startOffset,
+              endOffset: savedRange?.endOffset
+            } : null
+          } 
+        }));
+        
+        // 3. Direct style manipulation fallback (for emergencies)
+        if (selection && selection.rangeCount > 0 && selectionText) {
+          try {
+            const range = selection.getRangeAt(0);
+            let container = range.commonAncestorContainer;
+            
+            // Get to element node if we're in text node
+            if (container.nodeType === Node.TEXT_NODE) {
+              container = container.parentNode;
+            }
+            
+            // Find closest paragraph or block element
+            while (container && 
+                  !['P', 'DIV', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6'].includes(container.nodeName) &&
+                  container.parentNode &&
+                  container.parentNode.nodeType === Node.ELEMENT_NODE) {
+              container = container.parentNode;
+            }
+            
+            if (container && container.style) {
+              console.log('Direct style manipulation fallback on element:', container);
+              // Apply indentation directly through styles
+              const currentMargin = parseInt(window.getComputedStyle(container).marginLeft) || 0;
+              
+              if (direction === 'increase') {
+                container.style.marginLeft = (currentMargin + 40) + 'px'; // 40px = 0.5 inch
+              } else if (currentMargin >= 40) {
+                container.style.marginLeft = (currentMargin - 40) + 'px';
+              }
+            }
+          } catch(e) {
+            console.error('Error in direct style manipulation fallback:', e);
           }
         }
-      } catch (error) {
-        console.error('Error in fallback indent method:', error);
-      }
-    }, 10);
+      }, 50); // Small delay to ensure focus is established
+    } else {
+      console.error('No content area found in the document!');
+    }
   };
 
   return (
