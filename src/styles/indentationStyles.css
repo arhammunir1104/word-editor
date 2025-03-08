@@ -8,25 +8,25 @@
   height: 1em;
 }
 
-/* Indented paragraph styles */
+/* Indented paragraph styles - using direct styles without !important */
 [data-indent-level="1"] {
-  margin-left: 40px !important; /* 0.5 inch */
+  margin-left: 40px; /* 0.5 inch */
 }
 
 [data-indent-level="2"] {
-  margin-left: 80px !important; /* 1 inch */
+  margin-left: 80px; /* 1 inch */
 }
 
 [data-indent-level="3"] {
-  margin-left: 120px !important; /* 1.5 inches */
+  margin-left: 120px; /* 1.5 inches */
 }
 
 [data-indent-level="4"] {
-  margin-left: 160px !important; /* 2 inches */
+  margin-left: 160px; /* 2 inches */
 }
 
 [data-indent-level="5"] {
-  margin-left: 200px !important; /* 2.5 inches */
+  margin-left: 200px; /* 2.5 inches */
 }
 
 /* First-line indentation (for paragraph style dialog) */
@@ -44,4 +44,23 @@
 [contenteditable] em {
   width: 40px;
   display: inline-block;
+}
+
+/* Animation for indent transitions */
+[contenteditable] [data-indent-level],
+[contenteditable] p,
+[contenteditable] div,
+[contenteditable] h1,
+[contenteditable] h2,
+[contenteditable] h3,
+[contenteditable] h4,
+[contenteditable] h5,
+[contenteditable] h6,
+[contenteditable] li {
+  transition: margin-left 0.15s ease-out;
+}
+
+/* Handle selection properly */
+[contenteditable] .selected-text {
+  background-color: rgba(66, 133, 244, 0.1);
 } 

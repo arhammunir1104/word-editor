@@ -214,207 +214,328 @@ const EditorContent = () => {
     return null;
   };
 
-  // Fully enhanced Google Docs-like Tab/Shift+Tab handling
+  // Add or update this function in your EditorContent component
   const handleTabKey = (e, pageNumber) => {
-    // CRITICAL: Stop all default and propagation to prevent focus switching
-    e.preventDefault(); 
-    e.stopPropagation();
-    e.stopImmediatePropagation();
+    // Prevent default tab behavior
+    e.preventDefault();
     
-    console.log(`Tab key handler: ${e.shiftKey ? 'Shift+Tab' : 'Tab'} on page ${pageNumber}`);
-    
-    // Save history state before changes (for undo/redo)
+    // Save history before making changes
     saveHistory(ActionTypes.COMPLETE);
+    
+    // Get current selection
+    const selection = window.getSelection();
+    if (!selection || selection.rangeCount === 0) return;
+    
+    const range = selection.getRangeAt(0);
+    const node = range.startContainer;
+    
+    // Store original range to restore later
+    const originalRange = range.cloneRange();
     
     // Determine indent direction: Tab = increase, Shift+Tab = decrease
     const direction = e.shiftKey ? 'decrease' : 'increase';
     
-    // Get selection and preserve it
-    const selection = window.getSelection();
-    if (!selection.rangeCount) return;
-    
-    const range = selection.getRangeAt(0);
-    const originalRange = range.cloneRange(); // Essential for restoring selection
-    
-    // Store the original start and end points for reliable restoration
-    const startContainer = range.startContainer;
-    const startOffset = range.startOffset;
-    const endContainer = range.endContainer;
-    const endOffset = range.endOffset;
-    
-    // Get container and content area
-    let container = range.commonAncestorContainer;
-    if (container.nodeType === Node.TEXT_NODE) {
-      container = container.parentNode;
-    }
-    
-    const contentArea = findContentArea(container);
-    if (!contentArea) return;
-    
-    // Track if any changes were made to decide whether to save history
-    let anyChangesApplied = false;
-    
-    // Special handling for Shift+Tab (decrease indentation)
-    if (e.shiftKey) {
-      console.log('Processing Shift+Tab - special decrease indent handling');
+    // Check if the selection is within a list item
+    const listItem = getListItem(node);
+    if (listItem) {
+      // Handle indentation within lists
+      const parentList = listItem.parentNode;
       
-      // Find the paragraph containing the selection
-      const paragraph = findParagraphNode(container);
-      if (paragraph) {
-        console.log('Found paragraph for Shift+Tab:', paragraph);
+      // Special case: List indentation
+      try {
+        // Apply list-specific indentation logic
+        const success = handleListIndentation(listItem, e.shiftKey ? 'outdent' : 'indent');
         
-        // Get computed style to check current indentation
-        const computedStyle = window.getComputedStyle(paragraph);
-        const currentMarginLeft = parseInt(computedStyle.marginLeft) || 0;
-        const indentLevel = Math.round(currentMarginLeft / 40); // 40px = 0.5 inch
-        
-        console.log(`Current indent level: ${indentLevel}, margin-left: ${currentMarginLeft}px`);
-        
-        if (indentLevel > 0) {
-          // Calculate new indentation one level back
-          const newLevel = indentLevel - 1;
-          const newMargin = newLevel * 40;
-          
-          console.log(`Decreasing indent to level ${newLevel} (${newMargin}px)`);
-          
-          // Apply the new margin directly
-          paragraph.style.marginLeft = `${newMargin}px`;
-          
-          // Also update indent level attribute
-          if (newLevel === 0) {
-            paragraph.removeAttribute('data-indent-level');
-          } else {
-            paragraph.setAttribute('data-indent-level', newLevel.toString());
-          }
-          
-          // Visual feedback
-          paragraph.style.backgroundColor = 'rgba(232, 240, 254, 0.3)';
-          
-          setTimeout(() => {
-            paragraph.style.transition = 'background-color 0.3s ease-out';
-            paragraph.style.backgroundColor = '';
-            
-            setTimeout(() => {
-              paragraph.style.transition = '';
-            }, 300);
-          }, 150);
-          
-          anyChangesApplied = true;
-          
-          // Update content
-          handleContentChange({ target: contentArea }, pageNumber);
-          
-          // Restore selection
+        if (success) {
+          // List indentation was handled successfully
           try {
+            // Restore the selection where possible
             selection.removeAllRanges();
             selection.addRange(originalRange);
           } catch (error) {
-            console.error('Error restoring selection after Shift+Tab:', error);
+            console.error('Error restoring selection after list indentation:', error);
           }
           
-          // Save history
-          setTimeout(() => {
-            saveHistory(ActionTypes.COMPLETE);
-          }, 10);
-          
-          return; // Handled Shift+Tab successfully
-        } else {
-          console.log('No indentation to decrease with Shift+Tab');
+          // Save history after changes
+          setTimeout(() => saveHistory(ActionTypes.COMPLETE), 100);
+          return;
         }
-      }
-    }
-    
-    // Special case: Table cell navigation
-    const tableCell = findParentWithTag(container, 'TD');
-    if (tableCell) {
-      moveToNextTableCell(tableCell, e.shiftKey);
-      return;
-    }
-    
-    // Special case: List indentation
-    const listItem = getListItem(container);
-    if (listItem) {
-      const success = handleListIndentation(listItem, e.shiftKey ? 'outdent' : 'indent');
-      if (success) anyChangesApplied = true;
-      
-      // Always try to restore selection
-      try {
-        selection.removeAllRanges();
-        selection.addRange(originalRange);
       } catch (error) {
-        console.error('Error restoring selection after list indentation:', error);
+        console.error('Error handling list indentation:', error);
       }
+    }
+    
+    // Get the paragraphs in the current selection
+    const paragraph = findParagraphNode(node);
+    
+    if (paragraph) {
+      // Apply paragraph indentation
+      const success = applyIndentation(paragraph, direction);
       
-      // If we successfully processed a list item, stop here
+      // If indentation was successful, restore selection and save history
       if (success) {
-        // Save history after changes
-        if (anyChangesApplied) {
-          window._pendingHistorySave = requestAnimationFrame(() => {
-            saveHistory(ActionTypes.COMPLETE);
-          });
+        try {
+          selection.removeAllRanges();
+          selection.addRange(originalRange);
+        } catch (error) {
+          console.error('Error restoring selection after indentation:', error);
         }
+        
+        // Save history after changes
+        setTimeout(() => saveHistory(ActionTypes.COMPLETE), 100);
         return;
       }
     }
     
-    console.log(`Tab key (${direction}) processing paragraph indentation...`);
-    
-    // For normal Tab and other fallback cases, use the enhanced indentation system
-    const result = handleIndent(direction, pageNumber);
-    
-    // If handleIndent was successful, it handled restoring the selection
-    // and saving history, so we can stop here
-    if (result) return;
-    
-    // Fallback for when no paragraph is found but there's a text selection
-    if (!range.collapsed && !e.shiftKey) {
-      // For Tab with text selection but no identified paragraph,
-      // try to wrap the selection in a paragraph and indent it
-      try {
-        // Create a temporary paragraph to hold the selection content
-        const span = document.createElement('span');
-        span.appendChild(range.extractContents());
+    // If we have text selected, we need special handling to avoid deleting it
+    if (!range.collapsed) {
+      // Find all paragraphs in the selection
+      const contentArea = findContentArea(range.commonAncestorContainer);
+      if (!contentArea) return;
+      
+      const selectedParagraphs = findAllParagraphsInSelection(range, contentArea);
+      
+      if (selectedParagraphs.length > 0) {
+        // Apply indentation to all selected paragraphs
+        let indentChanged = false;
+        selectedParagraphs.forEach(para => {
+          if (para) {
+            const result = applyIndentation(para, direction);
+            if (result) indentChanged = true;
+          }
+        });
         
-        // Insert the temporary span
-        range.insertNode(span);
-        
-        // Apply indentation to the span
-        applyIndentation(span, direction);
-        anyChangesApplied = true;
-        
-        // Restore selection as best we can
-        selection.removeAllRanges();
-        const newRange = document.createRange();
-        newRange.selectNodeContents(span);
-        selection.addRange(newRange);
-      } catch (error) {
-        console.error('Error handling tab with text selection:', error);
-        
-        // Last resort: try to restore original selection
+        // Try to restore the original selection
         try {
           selection.removeAllRanges();
           selection.addRange(originalRange);
-        } catch (restoreError) {
-          console.error('Failed to restore selection after tab error:', restoreError);
+        } catch (error) {
+          console.error('Error restoring selection:', error);
         }
+        
+        // Save history if changes were made
+        if (indentChanged) {
+          setTimeout(() => saveHistory(ActionTypes.COMPLETE), 100);
+        }
+        
+        return;
       }
-    } 
-    // Fallback when no paragraph found: just insert tab spacing
-    else if (!e.shiftKey) { // Only for Tab, not Shift+Tab
-      document.execCommand('insertHTML', false, '&emsp;');
-      anyChangesApplied = true;
+      
+      // If we didn't find paragraphs but have a selection, create a wrapper
+      try {
+        // Create a span to wrap the selection
+        const span = document.createElement('span');
+        range.surroundContents(span);
+        
+        // Apply indentation to the span
+        applyIndentation(span, direction);
+        
+        // Save history after changes
+        setTimeout(() => saveHistory(ActionTypes.COMPLETE), 100);
+        return;
+      } catch (error) {
+        console.error('Error wrapping selection:', error);
+      }
     }
     
-    // Update content to reflect changes
-    if (anyChangesApplied) {
-      handleContentChange({ target: contentArea }, pageNumber);
+    // Fallback: If nothing else worked, try inserting a tab character
+    const tab = document.createElement('span');
+    tab.className = 'tab-space';
+    tab.innerHTML = '&nbsp;&nbsp;&nbsp;&nbsp;';
+    
+    // Insert at current position
+    range.insertNode(tab);
+    
+    // Move selection after the tab
+    range.setStartAfter(tab);
+    range.setEndAfter(tab);
+    selection.removeAllRanges();
+    selection.addRange(range);
+    
+    // Save history after changes
+    setTimeout(() => saveHistory(ActionTypes.COMPLETE), 100);
+  };
+
+  // Enhanced applyIndentation function that fixes the decrease indent issue
+  const applyIndentation = (paragraph, direction) => {
+    if (!paragraph) return false;
+    
+    try {
+      // Get current indentation from computed style
+      const computedStyle = window.getComputedStyle(paragraph);
+      const currentMarginLeft = parseInt(computedStyle.marginLeft) || 0;
       
-      // Save history after changes for undo/redo
-      // Use requestAnimationFrame for better performance and to allow cancellation
-      window._pendingHistorySave = requestAnimationFrame(() => {
-        saveHistory(ActionTypes.COMPLETE);
-      });
+      // Google Docs indentation step (0.5 inch = 40px at 96 DPI)
+      const INDENT_STEP = 40;
+      const MAX_INDENT_LEVEL = 10; // Prevent excessive indentation
+      
+      // For tracking what indent level we're at and if any changes occurred
+      let indentationChanged = false;
+      
+      // If it's a span, we might need to convert to a div for proper indentation
+      if (paragraph.tagName === 'SPAN' && !paragraph.getAttribute('data-indent-level')) {
+        // Check if it has a parent paragraph we can indent instead
+        const parentParagraph = findParagraphNode(paragraph.parentNode);
+        if (parentParagraph) {
+          return applyIndentation(parentParagraph, direction);
+        }
+        
+        // Otherwise convert it to a div
+        const div = document.createElement('div');
+        div.innerHTML = paragraph.innerHTML;
+        paragraph.parentNode.replaceChild(div, paragraph);
+        paragraph = div;
+      }
+      
+      // Increase indentation
+      if (direction === 'increase') {
+        // Calculate the exact current level without rounding
+        const exactLevel = currentMarginLeft / INDENT_STEP;
+        // Get the next higher level (exact steps)
+        const newLevel = Math.floor(exactLevel) + 1;
+        
+        // Check if we're at max indent level
+        if (newLevel > MAX_INDENT_LEVEL) {
+          return false;
+        }
+        
+        // Calculate the new margin based on the exact level
+        const newMargin = newLevel * INDENT_STEP;
+        
+        // Better handling of existing styles
+        const existingStyles = paragraph.style.cssText || '';
+        
+        // Create a clean version without any margin-left or transition properties
+        const cleanedStyles = existingStyles
+          .replace(/margin-left\s*:[^;]+;?/gi, '')
+          .replace(/transition\s*:[^;]+;?/gi, '');
+        
+        // Apply indentation with animation
+        paragraph.style.cssText = `${cleanedStyles}${cleanedStyles ? '; ' : ''}margin-left: ${newMargin}px; transition: margin-left 0.15s ease-out;`;
+        paragraph.style.marginLeft = `${newMargin}px`; // Explicitly set
+        
+        // Store indentation level for future reference
+        paragraph.setAttribute('data-indent-level', newLevel.toString());
+        indentationChanged = true;
+        
+        // Clean up transition after animation
+        setTimeout(() => {
+          const styles = paragraph.style.cssText.replace(/transition\s*:[^;]+;?/gi, '');
+          paragraph.style.cssText = styles;
+        }, 200);
+      } 
+      // Decrease indentation
+      else if (direction === 'decrease') {
+        // Only apply decrease if we have margin to decrease
+        if (currentMarginLeft <= 0) {
+          return false;
+        }
+        
+        // Calculate the exact current level without rounding
+        const exactLevel = currentMarginLeft / INDENT_STEP;
+        // Get the next lower level (exact steps) - use ceil to ensure moving to the previous step
+        const newLevel = Math.max(0, Math.ceil(exactLevel) - 1);
+        // Calculate the new margin based on the exact level
+        const newMargin = newLevel * INDENT_STEP;
+        
+        // Better handling of existing styles
+        const existingStyles = paragraph.style.cssText || '';
+        
+        // Create a clean version without any margin-left or transition properties
+        const cleanedStyles = existingStyles
+          .replace(/margin-left\s*:[^;]+;?/gi, '')
+          .replace(/transition\s*:[^;]+;?/gi, '');
+        
+        // Apply with smooth animation
+        if (newMargin === 0) {
+          // Remove indentation completely but preserve other styles
+          paragraph.style.cssText = `${cleanedStyles}${cleanedStyles ? '; ' : ''}margin-left: 0px; transition: margin-left 0.15s ease-out;`;
+          paragraph.style.marginLeft = '0px'; // Explicitly set to 0
+          paragraph.removeAttribute('data-indent-level');
+        } else {
+          // Apply reduced indentation
+          paragraph.style.cssText = `${cleanedStyles}${cleanedStyles ? '; ' : ''}margin-left: ${newMargin}px; transition: margin-left 0.15s ease-out;`;
+          paragraph.style.marginLeft = `${newMargin}px`; // Explicitly set
+          
+          // Set the data-indent-level attribute to the new level
+          paragraph.setAttribute('data-indent-level', newLevel.toString());
+        }
+        
+        indentationChanged = true;
+        
+        // Clean up transition after animation
+        setTimeout(() => {
+          const styles = paragraph.style.cssText.replace(/transition\s*:[^;]+;?/gi, '');
+          paragraph.style.cssText = styles;
+        }, 200);
+      }
+      
+      // If indentation changed, update content and provide visual feedback
+      if (indentationChanged) {
+        const contentArea = findContentArea(paragraph);
+        if (contentArea) {
+          // Add a subtle highlight to show the paragraph being indented
+          const originalBackground = paragraph.style.backgroundColor || '';
+          
+          // Apply a subtle animation to show the change
+          paragraph.style.backgroundColor = 'rgba(232, 240, 254, 0.4)';
+          
+          setTimeout(() => {
+            paragraph.style.transition = 'background-color 0.3s ease-out';
+            paragraph.style.backgroundColor = originalBackground;
+            
+            setTimeout(() => {
+              paragraph.style.removeProperty('transition');
+            }, 350);
+          }, 150);
+          
+          // Trigger input event to ensure changes are detected
+          contentArea.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+        
+        return true;
+      }
+      
+      return false;
+    } catch (error) {
+      console.error('Error applying indentation:', error);
+      return false;
     }
+  };
+
+  // Function to find all paragraphs in a selection
+  const findAllParagraphsInSelection = (range, contentArea) => {
+    if (!range || !contentArea) return [];
+    
+    const result = [];
+    
+    // Method 1: Check all paragraphs in content area for intersection
+    const allParagraphs = Array.from(
+      contentArea.querySelectorAll('p, div:not([data-content-area]), h1, h2, h3, h4, h5, h6, li')
+    );
+    
+    // Filter to paragraphs that intersect with the selection
+    const intersectingParagraphs = allParagraphs.filter(node => {
+      try {
+        return range.intersectsNode(node);
+      } catch {
+        return false;
+      }
+    });
+    
+    if (intersectingParagraphs.length > 0) {
+      return intersectingParagraphs;
+    }
+    
+    // Method 2: Use common ancestor if no paragraphs found
+    const commonAncestor = range.commonAncestorContainer;
+    const paragraph = findParagraphNode(commonAncestor);
+    
+    if (paragraph) {
+      return [paragraph];
+    }
+    
+    return [];
   };
 
   // Enhanced function to get all selected paragraphs reliably
@@ -528,192 +649,6 @@ const EditorContent = () => {
     
     console.log(`Final result: ${result.length} paragraphs found`);
     return result;
-  };
-
-  // Enhanced paragraph indentation with perfect Google Docs behavior
-  const applyIndentation = (paragraph, direction) => {
-    if (!paragraph) return false;
-    
-    try {
-      console.log(`Applying ${direction} indentation to:`, paragraph);
-      
-      // Get content area and page number for content updates
-      const contentArea = findContentArea(paragraph);
-      const pageNumber = contentArea ? parseInt(contentArea.getAttribute('data-page') || '1') : 1;
-      
-      // Get current indentation from computed style
-      const computedStyle = window.getComputedStyle(paragraph);
-      const currentMarginLeft = parseInt(computedStyle.marginLeft) || 0;
-      
-      console.log(`Current margin-left: ${currentMarginLeft}px`);
-      
-      // Google Docs indentation step (0.5 inch = 40px at 96 DPI)
-      const INDENT_STEP = 40; 
-      const MAX_INDENT_LEVEL = 10; // Prevent excessive indentation
-      
-      // For tracking what indent level we're at
-      let currentIndentLevel = Math.round(currentMarginLeft / INDENT_STEP);
-      if (currentIndentLevel < 0) currentIndentLevel = 0;
-      if (currentIndentLevel > MAX_INDENT_LEVEL) currentIndentLevel = MAX_INDENT_LEVEL;
-      
-      console.log(`Current indent level: ${currentIndentLevel}`);
-      
-      // Track if any changes were made
-      let indentationChanged = false;
-      
-      // Special handling for span elements (often used for selections)
-      // If it's a span, we might need to convert to a div for proper indentation
-      if (paragraph.tagName === 'SPAN' && !paragraph.getAttribute('data-indent-level')) {
-        console.log('Processing span element for indentation');
-        
-        // If this is a span inside a paragraph, apply to the parent paragraph instead
-        const parentParagraph = findParagraphNode(paragraph.parentNode);
-        if (parentParagraph && parentParagraph !== paragraph) {
-          console.log('Found parent paragraph, applying indentation to parent instead');
-          return applyIndentation(parentParagraph, direction);
-        }
-        
-        // If this is a standalone span, convert to a div if needed
-        if (!paragraph.style.display || paragraph.style.display === 'inline') {
-          console.log('Converting inline span to block element for indentation');
-          paragraph.style.display = 'block';
-        }
-      }
-      
-      // DIRECT DOM MANIPULATION - This is more reliable than using style properties
-      // especially for cases where previous style manipulation might have issues
-      
-      // Increase indentation
-      if (direction === 'increase') {
-        // Check if we're at max indent level
-        if (currentIndentLevel >= MAX_INDENT_LEVEL) {
-          console.log('Already at maximum indent level');
-          return false;
-        }
-        
-        // Calculate new indentation - always one step at a time
-        const newLevel = currentIndentLevel + 1;
-        const newMargin = newLevel * INDENT_STEP;
-        
-        console.log(`Increasing indent from level ${currentIndentLevel} to ${newLevel} (${newMargin}px)`);
-        
-        // Better handling of existing styles by directly setting cssText
-        const existingStyles = paragraph.style.cssText || '';
-        
-        // Create a clean version without any margin-left or transition properties
-        const cleanedStyles = existingStyles
-          .replace(/margin-left\s*:[^;]+;?/gi, '')
-          .replace(/transition\s*:[^;]+;?/gi, '');
-        
-        // Apply indentation with animation
-        paragraph.style.cssText = `${cleanedStyles}${cleanedStyles ? '; ' : ''}margin-left: ${newMargin}px; transition: margin-left 0.15s ease-out;`;
-        
-        // Also set the marginLeft property directly for better browser support
-        paragraph.style.marginLeft = `${newMargin}px`;
-        
-        // Store indentation level for future reference
-        paragraph.setAttribute('data-indent-level', newLevel.toString());
-        indentationChanged = true;
-        
-        // Clean up transition after animation completes
-        setTimeout(() => {
-          const currentStyles = paragraph.style.cssText || '';
-          paragraph.style.cssText = currentStyles.replace(/transition\s*:[^;]+;?/gi, '');
-          
-          // Ensure marginLeft is still applied
-          paragraph.style.marginLeft = `${newMargin}px`;
-        }, 200);
-        
-        return true;
-      } 
-      // Decrease indentation
-      else if (direction === 'decrease') {
-        // Only apply decrease if we have a positive indent level
-        if (currentIndentLevel <= 0) {
-          console.log('Already at minimum indent level');
-          return false;
-        }
-        
-        // Calculate new indentation - always one step at a time
-        const newLevel = currentIndentLevel - 1;
-        const newMargin = newLevel * INDENT_STEP;
-        
-        console.log(`Decreasing indent from level ${currentIndentLevel} to ${newLevel} (${newMargin}px)`);
-        
-        // Better handling of existing styles
-        const existingStyles = paragraph.style.cssText || '';
-        
-        // Create a clean version without any margin-left or transition properties
-        const cleanedStyles = existingStyles
-          .replace(/margin-left\s*:[^;]+;?/gi, '')
-          .replace(/transition\s*:[^;]+;?/gi, '');
-        
-        // Apply with smooth animation
-        if (newMargin === 0) {
-          console.log('Removing all indentation');
-          // Remove indentation completely but preserve other styles
-          paragraph.style.cssText = `${cleanedStyles}${cleanedStyles ? '; ' : ''}margin-left: 0px; transition: margin-left 0.15s ease-out;`;
-          paragraph.style.marginLeft = '0px'; // Explicitly set to 0
-          paragraph.removeAttribute('data-indent-level');
-        } else {
-          console.log(`Decreasing indent to: ${newMargin}px`);
-          // Apply reduced indentation
-          paragraph.style.cssText = `${cleanedStyles}${cleanedStyles ? '; ' : ''}margin-left: ${newMargin}px; transition: margin-left 0.15s ease-out;`;
-          paragraph.style.marginLeft = `${newMargin}px`; // Explicitly set
-          
-          // Set the data-indent-level attribute to the new level
-          paragraph.setAttribute('data-indent-level', newLevel.toString());
-        }
-        
-        indentationChanged = true;
-        
-        // Clean up transition
-        setTimeout(() => {
-          const currentStyles = paragraph.style.cssText || '';
-          paragraph.style.cssText = currentStyles.replace(/transition\s*:[^;]+;?/gi, '');
-          
-          // Ensure marginLeft is still properly applied
-          paragraph.style.marginLeft = `${newMargin}px`;
-        }, 200);
-        
-        return true;
-      }
-      
-      // If indentation changed, update content and provide visual feedback
-      if (indentationChanged && contentArea) {
-        // Add subtle highlight effect for visual feedback (like Google Docs)
-        // Store original style properties before adding highlight
-        const currentStyles = paragraph.style.cssText || '';
-        
-        // Add highlighting via direct style manipulation for reliability
-        paragraph.style.cssText = `${currentStyles}${currentStyles ? '; ' : ''}background-color: rgba(232, 240, 254, 0.3);`;
-        
-        setTimeout(() => {
-          // Fade out highlight
-          const styles = paragraph.style.cssText || '';
-          // Clean background color specifically without affecting other styles
-          const cleanedStyles = styles.replace(/background-color\s*:[^;]+;?/gi, '');
-          paragraph.style.cssText = `${cleanedStyles}${cleanedStyles ? '; ' : ''}transition: background-color 0.3s ease-out;`;
-          
-          setTimeout(() => {
-            const finalStyles = paragraph.style.cssText || '';
-            paragraph.style.cssText = finalStyles.replace(/transition\s*:[^;]+;?/gi, '');
-          }, 350);
-        }, 150);
-        
-        // Dispatch event to ensure content is saved
-        const inputEvent = new Event('input', { bubbles: true });
-        contentArea.dispatchEvent(inputEvent);
-        handleContentChange({ target: contentArea }, pageNumber);
-        
-        return true;
-      }
-      
-      return indentationChanged;
-    } catch (error) {
-      console.error('Error applying indentation:', error);
-      return false;
-    }
   };
 
   // Add a better paragraph finder
@@ -1035,205 +970,6 @@ const EditorContent = () => {
     }
     
     return anyChangesApplied;
-  };
-
-  // Helper function to find the content area containing a node
-  const findContentArea = (node) => {
-    while (node) {
-      if (node.hasAttribute && node.hasAttribute('data-page')) {
-        return node;
-      }
-      node = node.parentNode;
-    }
-    return document.querySelector('[data-content-area="true"]');
-  };
-
-  // Helper function to get the current page number based on selection or active element
-  const getCurrentPageNumber = () => {
-    // First try to get page from current selection
-    const selection = window.getSelection();
-    if (selection && selection.rangeCount > 0) {
-      const range = selection.getRangeAt(0);
-      const contentArea = findContentArea(range.commonAncestorContainer);
-      if (contentArea) {
-        return parseInt(contentArea.getAttribute('data-page')) || 1;
-      }
-    }
-    
-    // If no selection, try to get from active element
-    if (document.activeElement) {
-      const contentArea = findContentArea(document.activeElement);
-      if (contentArea) {
-        return parseInt(contentArea.getAttribute('data-page')) || 1;
-      }
-    }
-    
-    // Default to first page if nothing else works
-    const firstContentArea = document.querySelector('[data-content-area="true"]');
-    if (firstContentArea) {
-      return parseInt(firstContentArea.getAttribute('data-page')) || 1;
-    }
-    
-    return 1; // Default to page 1
-  };
-
-  // Enhanced list indentation with proper hierarchy and style changes
-  const handleListIndentation = (listItem, direction) => {
-    if (!listItem) return false;
-    
-    // Save before making changes
-    saveHistory(ActionTypes.COMPLETE);
-    
-    const parentList = listItem.parentNode;
-    if (!parentList) return false;
-    
-    if (direction === 'indent') {
-      // Can't indent first item in a list (Google Docs behavior)
-      const prevLi = listItem.previousElementSibling;
-      if (!prevLi) return false;
-      
-      // Find or create a sublist in the previous item
-      let sublist = Array.from(prevLi.children).find(child => 
-        child.nodeName === parentList.nodeName // Keep same list type (UL or OL)
-      );
-      
-      if (!sublist) {
-        // Create same type of list as parent
-        sublist = document.createElement(parentList.nodeName);
-        prevLi.appendChild(sublist);
-      }
-      
-      // Determine current nesting level
-      let level = 1;
-      let currentParent = parentList;
-      while (currentParent.parentNode && currentParent.parentNode.nodeName === 'LI') {
-        level++;
-        currentParent = currentParent.parentNode.parentNode;
-      }
-      
-      // Move this item to the sublist
-      sublist.appendChild(listItem);
-      
-      // Apply appropriate styles based on nesting level
-      if (sublist.nodeName === 'UL') {
-        // Bullet styles cycle: disc → circle → square → disc
-        const bulletStyles = ['disc', 'circle', 'square'];
-        const styleIndex = level % bulletStyles.length;
-        sublist.style.listStyleType = bulletStyles[styleIndex];
-      } else if (sublist.nodeName === 'OL') {
-        // Number styles cycle: decimal → lower-alpha → lower-roman → decimal
-        const numberStyles = ['decimal', 'lower-alpha', 'lower-roman'];
-        const styleIndex = level % numberStyles.length;
-        sublist.style.listStyleType = numberStyles[styleIndex];
-      }
-      
-      // Update all numbering for ordered lists
-      if (parentList.nodeName === 'OL') {
-        // Force browser to recalculate numbering by toggling display
-        const originalDisplay = parentList.style.display;
-        parentList.style.display = 'none';
-        setTimeout(() => {
-          parentList.style.display = originalDisplay;
-        }, 10);
-      }
-      
-      // Google Docs-like animation and visual feedback
-      listItem.style.transition = 'margin-left 0.15s ease-out, background-color 0.2s ease-out';
-      listItem.style.backgroundColor = 'rgba(232, 240, 254, 0.3)';
-      
-      setTimeout(() => {
-        listItem.style.backgroundColor = '';
-        setTimeout(() => {
-          listItem.style.transition = '';
-        }, 200);
-      }, 150);
-      
-      // Update styles for the entire list hierarchy
-      updateListStyles(findRootList(sublist));
-      
-      // Save after changes
-      setTimeout(() => {
-        saveHistory(ActionTypes.COMPLETE);
-      }, 10);
-      
-      return true;
-    } else if (direction === 'outdent') {
-      // Can't outdent if not nested
-      const grandparent = parentList.parentNode;
-      if (!grandparent || grandparent.nodeName !== 'LI') return false;
-      
-      const greatGrandparentList = grandparent.parentNode;
-      if (!greatGrandparentList) return false;
-      
-      // Apply visual feedback before moving
-      listItem.style.transition = 'margin-left 0.15s ease-out, background-color 0.2s ease-out';
-      listItem.style.backgroundColor = 'rgba(232, 240, 254, 0.3)';
-      
-      // Move this item after its grandparent (Google Docs behavior)
-      if (grandparent.nextSibling) {
-        greatGrandparentList.insertBefore(listItem, grandparent.nextSibling);
-      } else {
-        greatGrandparentList.appendChild(listItem);
-      }
-      
-      // If parent list is now empty, remove it
-      if (parentList.children.length === 0) {
-        grandparent.removeChild(parentList);
-      }
-      
-      // Update styles based on new nesting level
-      let level = 0;
-      let currentParent = greatGrandparentList;
-      while (currentParent.parentNode && currentParent.parentNode.nodeName === 'LI') {
-        level++;
-        currentParent = currentParent.parentNode.parentNode;
-      }
-      
-      // Apply appropriate list style based on level
-      if (greatGrandparentList.nodeName === 'UL') {
-        // Bullet styles: disc → circle → square → disc
-        const bulletStyles = ['disc', 'circle', 'square'];
-        const styleIndex = level % bulletStyles.length;
-        // Apply to the list item's marker
-        listItem.style.listStyleType = bulletStyles[styleIndex];
-      } else if (greatGrandparentList.nodeName === 'OL') {
-        // Number styles: decimal → lower-alpha → lower-roman → decimal
-        const numberStyles = ['decimal', 'lower-alpha', 'lower-roman'];
-        const styleIndex = level % numberStyles.length;
-        // Apply to the list item's marker
-        listItem.style.listStyleType = numberStyles[styleIndex];
-      }
-      
-      // Update numbering for ordered lists
-      if (greatGrandparentList.nodeName === 'OL') {
-        // Force browser to recalculate numbering by toggling display
-        const originalDisplay = greatGrandparentList.style.display;
-        greatGrandparentList.style.display = 'none';
-        setTimeout(() => {
-          greatGrandparentList.style.display = originalDisplay;
-        }, 10);
-      }
-      
-      // Fade out highlight
-      setTimeout(() => {
-        listItem.style.backgroundColor = '';
-        setTimeout(() => {
-          listItem.style.transition = '';
-        }, 200);
-      }, 150);
-      
-      // Update styles for all affected lists
-      updateListStyles(greatGrandparentList);
-      
-      // Save after changes
-      setTimeout(() => {
-        saveHistory(ActionTypes.COMPLETE);
-      }, 10);
-      
-      return true;
-    }
-    
-    return false;
   };
 
   // Handle backspace at the start of an indented paragraph

@@ -58,7 +58,7 @@ const IndentationControls = () => {
   
   // Apply indentation to a paragraph
   const applyIndentation = (paragraph, direction) => {
-    if (!paragraph) return;
+    if (!paragraph) return false;
     
     // Get current indentation level from computed style
     const computedStyle = window.getComputedStyle(paragraph);
@@ -68,73 +68,97 @@ const IndentationControls = () => {
     const INDENT_STEP = 40; 
     const MAX_INDENT_LEVEL = 10; // Prevent excessive indentation
     
+    let indentChanged = false;
+    
     // Handle increase indentation
     if (direction === 'increase') {
       // Check if we're at max indent level
       const currentLevel = parseInt(paragraph.getAttribute('data-indent-level') || '0');
-      if (currentLevel >= MAX_INDENT_LEVEL) return;
+      if (currentLevel >= MAX_INDENT_LEVEL) return false;
       
-      // Increase indentation by one step
-      const newMargin = currentMarginLeft + INDENT_STEP;
+      // Calculate the exact current level without rounding
+      const exactLevel = currentMarginLeft / INDENT_STEP;
+      // Get the next higher level (exact steps)
+      const newLevel = Math.floor(exactLevel) + 1;
+      // Calculate the new margin based on the exact level
+      const newMargin = newLevel * INDENT_STEP;
       
       // Apply indentation directly to the paragraph with smooth transition
       paragraph.style.transition = 'margin-left 0.15s ease-in-out';
       paragraph.style.marginLeft = `${newMargin}px`;
       
       // Store indentation level as data attribute for future reference
-      paragraph.setAttribute('data-indent-level', (currentLevel + 1).toString());
+      paragraph.setAttribute('data-indent-level', newLevel.toString());
       
       // Remove transition after animation completes
       setTimeout(() => {
         paragraph.style.removeProperty('transition');
       }, 200);
+      
+      indentChanged = true;
     } 
     // Handle decrease indentation
     else if (direction === 'decrease') {
       // Only decrease if there's actual margin to decrease
-      if (currentMarginLeft >= INDENT_STEP) {
-        // Decrease indentation, but never below 0
-        const newMargin = Math.max(0, currentMarginLeft - INDENT_STEP);
+      if (currentMarginLeft <= 0) return false;
+      
+      // Calculate the exact current level without rounding
+      const exactLevel = currentMarginLeft / INDENT_STEP;
+      // Get the next lower level (exact steps)
+      const newLevel = Math.max(0, Math.ceil(exactLevel) - 1);
+      // Calculate the new margin based on the exact level
+      const newMargin = newLevel * INDENT_STEP;
+      
+      // Add smooth transition
+      paragraph.style.transition = 'margin-left 0.15s ease-in-out';
+      
+      if (newLevel === 0) {
+        // Remove all indentation
+        paragraph.style.marginLeft = '0px';
         
-        // Add smooth transition
-        paragraph.style.transition = 'margin-left 0.15s ease-in-out';
-        
-        if (newMargin === 0) {
+        // Use setTimeout to ensure the transition completes before removing the style
+        setTimeout(() => {
           paragraph.style.removeProperty('margin-left');
           paragraph.removeAttribute('data-indent-level');
-        } else {
-          paragraph.style.marginLeft = `${newMargin}px`;
-          const currentLevel = parseInt(paragraph.getAttribute('data-indent-level') || '0');
-          paragraph.setAttribute('data-indent-level', Math.max(0, currentLevel - 1).toString());
-        }
-        
-        // Remove transition after animation completes
-        setTimeout(() => {
-          paragraph.style.removeProperty('transition');
-        }, 200);
+        }, 150);
+      } else {
+        // Set the exact pixel value for margin
+        paragraph.style.marginLeft = `${newMargin}px`;
+        paragraph.setAttribute('data-indent-level', newLevel.toString());
       }
+      
+      // Remove transition after animation completes
+      setTimeout(() => {
+        paragraph.style.removeProperty('transition');
+      }, 200);
+      
+      indentChanged = true;
     }
     
     // Dispatch an input event to ensure content is saved
-    const contentArea = findContentArea(paragraph);
-    if (contentArea) {
-      // Add a subtle highlight effect to show which paragraph was indented
-      const originalBackground = paragraph.style.backgroundColor;
-      paragraph.style.backgroundColor = 'rgba(232, 240, 254, 0.4)'; // Light blue highlight
-      
-      setTimeout(() => {
-        // Remove highlight effect after 300ms
-        paragraph.style.transition = 'background-color 0.3s ease-out';
-        paragraph.style.backgroundColor = originalBackground || '';
+    if (indentChanged) {
+      const contentArea = findContentArea(paragraph);
+      if (contentArea) {
+        // Add a subtle highlight effect to show which paragraph was indented
+        const originalBackground = paragraph.style.backgroundColor;
+        paragraph.style.backgroundColor = 'rgba(232, 240, 254, 0.4)'; // Light blue highlight
         
         setTimeout(() => {
-          paragraph.style.removeProperty('transition');
-        }, 350);
-      }, 150);
-      
-      const inputEvent = new Event('input', { bubbles: true });
-      contentArea.dispatchEvent(inputEvent);
+          // Remove highlight effect after 300ms
+          paragraph.style.transition = 'background-color 0.3s ease-out';
+          paragraph.style.backgroundColor = originalBackground || '';
+          
+          setTimeout(() => {
+            paragraph.style.removeProperty('transition');
+          }, 350);
+        }, 150);
+        
+        const inputEvent = new Event('input', { bubbles: true });
+        contentArea.dispatchEvent(inputEvent);
+      }
     }
+    
+    return indentChanged;
   };
   
   // Find all paragraphs in a selection range
@@ -145,7 +169,7 @@ const IndentationControls = () => {
     
     // Method 1: Check all paragraphs in content area for intersection
     const allParagraphs = Array.from(
-      contentArea.querySelectorAll('p, div:not([data-content-area]), h1, h2, h3, h4, h5, h6')
+      contentArea.querySelectorAll('p, div:not([data-content-area]), h1, h2, h3, h4, h5, h6, li')
     );
     
     // Filter to paragraphs that intersect with the selection
@@ -254,9 +278,11 @@ const IndentationControls = () => {
       
       // Apply indentation to all found paragraphs
       if (paragraphs.length > 0) {
+        let indentChanged = false;
         paragraphs.forEach(para => {
           if (para) {
-            applyIndentation(para, direction);
+            const result = applyIndentation(para, direction);
+            if (result) indentChanged = true;
           }
         });
         
@@ -267,12 +293,20 @@ const IndentationControls = () => {
         } catch (error) {
           console.error('Error restoring selection:', error);
         }
+        
+        // Save history only if changes were made
+        if (indentChanged) {
+          setTimeout(() => saveHistory(ActionTypes.COMPLETE), 100);
+        }
       } else {
         // Fallback - if no paragraphs found, use the paragraph at cursor
         const node = range.commonAncestorContainer;
         const paragraph = findParagraphNode(node);
         if (paragraph) {
-          applyIndentation(paragraph, direction);
+          const result = applyIndentation(paragraph, direction);
+          if (result) {
+            setTimeout(() => saveHistory(ActionTypes.COMPLETE), 100);
+          }
         }
       }
       
@@ -288,9 +322,6 @@ const IndentationControls = () => {
     } catch (error) {
       console.error('Error in handleIndentDirect:', error);
     }
-    
-    // Save history after all changes are applied
-    setTimeout(() => saveHistory(ActionTypes.COMPLETE), 100);
   };
 
   return (
