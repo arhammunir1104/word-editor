@@ -35,6 +35,19 @@ import {
   // FormatSize, 
   // ArrowDropDown 
 } from '@mui/icons-material';
+import { 
+  getListLevel, 
+  findListItemParent, 
+  findRootList, 
+  getBulletStyleForLevel, 
+  getNumberStyleForLevel, 
+  createEmptyListItem,
+  updateListStyles,
+  isListItemEmpty,
+  isAtStartOfNode,
+  isAtEndOfNode,
+  findContentArea
+} from '../../utils/ListUtils';
 
 // A4 dimensions in pixels (96 DPI)
 const INCH_TO_PX = 96;
@@ -1759,11 +1772,168 @@ const EditorContent = () => {
     
     const range = selection.getRangeAt(0);
     
-    // Check if we're in a list
-    const listItemNode = findParentWithTag(range.startContainer, 'LI');
-    if (!listItemNode) return false;
+    // Find if we're in a list item
+    let node = range.startContainer;
+      if (node.nodeType === Node.TEXT_NODE) {
+        node = node.parentNode;
+      }
+      
+    const listItem = findListItemParent(node);
+    if (!listItem) return false;
     
-    return handleListSpecialKeys(e, listItemNode);
+    // Check if list item is empty
+    if (isListItemEmpty(listItem)) {
+      e.preventDefault();
+      
+      // Get list level
+      const level = getListLevel(listItem);
+      
+      if (level > 1) {
+        // If nested, outdent (like Tab+Shift in Google Docs)
+        handleListIndentation(listItem, 'outdent');
+        return true;
+      } else {
+        // If at top level and empty, exit the list (convert to paragraph)
+        const list = listItem.parentNode;
+        const newParagraph = document.createElement('p');
+        newParagraph.innerHTML = '<br>';
+        
+        // Insert after the list or current item
+        if (listItem.nextSibling) {
+          // If there are items after this one, split the list
+          const newList = document.createElement(list.nodeName);
+          
+          // Clone attributes
+          for (let i = 0; i < list.attributes.length; i++) {
+            const attr = list.attributes[i];
+            newList.setAttribute(attr.name, attr.value);
+          }
+          
+          // Move all following items to new list
+          let nextItem = listItem.nextSibling;
+          while (nextItem) {
+            const itemToMove = nextItem;
+            nextItem = nextItem.nextSibling;
+            newList.appendChild(itemToMove);
+          }
+          
+          // Insert paragraph and new list
+          list.parentNode.insertBefore(newParagraph, list.nextSibling);
+          if (newList.children.length > 0) {
+            list.parentNode.insertBefore(newList, newParagraph.nextSibling);
+          }
+        } else {
+          // Simply add paragraph after list
+          list.parentNode.insertBefore(newParagraph, list.nextSibling);
+        }
+        
+        // Remove the empty list item
+        listItem.remove();
+        
+        // If list is now empty, remove it
+        if (list.children.length === 0) {
+          list.remove();
+        }
+        
+        // Set focus to new paragraph
+        const newRange = document.createRange();
+        newRange.setStart(newParagraph, 0);
+        newRange.collapse(true);
+        selection.removeAllRanges();
+        selection.addRange(newRange);
+        
+        // Save history
+        saveHistory(ActionTypes.COMPLETE);
+        return true;
+      }
+    }
+    
+    // Handle Enter in middle or end of list item
+    e.preventDefault();
+    
+    // Create new list item
+    const list = listItem.parentNode;
+    const newItem = document.createElement('li');
+    
+    // Set list style based on level
+    const level = getListLevel(listItem);
+    if (list.nodeName === 'UL') {
+      newItem.style.listStyleType = getBulletStyleForLevel(level);
+    } else {
+      newItem.style.listStyleType = getNumberStyleForLevel(level);
+    }
+    
+    // Handle split based on cursor position
+    if (range.collapsed) {
+      // Handle cursor position
+      let container = range.startContainer;
+      let offset = range.startOffset;
+      
+      // If text node
+      if (container.nodeType === Node.TEXT_NODE) {
+        const text = container.textContent;
+        
+        // Split text at cursor
+        const beforeText = text.substring(0, offset);
+        const afterText = text.substring(offset);
+        
+        // Update current node
+        container.textContent = beforeText;
+        
+        // Create text for new item
+        if (afterText) {
+          const newText = document.createTextNode(afterText);
+          newItem.appendChild(newText);
+        } else {
+          newItem.innerHTML = '<br>';
+        }
+      } else {
+        // Handle element nodes
+        // Check if cursor is at the end
+        const isAtEnd = isAtEndOfNode(range, listItem);
+        
+        if (isAtEnd) {
+          newItem.innerHTML = '<br>';
+        } else {
+          // This is more complex - we need to clone nodes after cursor
+          // Create a range from cursor to end
+          const endRange = document.createRange();
+          endRange.setStart(range.startContainer, range.startOffset);
+          endRange.setEndAfter(listItem.lastChild);
+          
+          // Extract content after cursor
+          const fragment = endRange.extractContents();
+          newItem.appendChild(fragment);
+          
+          // If current item is now empty, add a break
+          if (!listItem.hasChildNodes() || listItem.textContent.trim() === '') {
+            listItem.innerHTML = '<br>';
+          }
+        }
+      }
+    } else {
+      // Selection not collapsed - delete selected content and add empty item
+      range.deleteContents();
+      newItem.innerHTML = '<br>';
+    }
+    
+    // Insert the new list item
+    if (listItem.nextSibling) {
+      list.insertBefore(newItem, listItem.nextSibling);
+    } else {
+      list.appendChild(newItem);
+    }
+    
+    // Move caret to start of new list item
+    const newRange = document.createRange();
+    newRange.selectNodeContents(newItem);
+    newRange.collapse(true);
+    selection.removeAllRanges();
+    selection.addRange(newRange);
+    
+    // Save history
+    saveHistory(ActionTypes.COMPLETE);
+    return true;
   };
 
   // Make sure this call is added to handleSpecialKeys if not already there
@@ -1888,7 +2058,7 @@ const EditorContent = () => {
   useEffect(() => {
     // Enhanced global Tab key handler to ensure we capture all Tab events
     const handleTabGlobally = (e) => {
-      if (e.key === 'Tab') {
+        if (e.key === 'Tab') {
         console.log(`Global Tab handler caught: ${e.shiftKey ? 'Shift+Tab' : 'Tab'}`);
         
         // Check if any editor area is active or contains selection
@@ -2418,6 +2588,268 @@ const EditorContent = () => {
     }
     
     return result;
+  };
+
+  // Add event listeners
+  useEffect(() => {
+    // ... existing event listeners
+    
+    // Listen for list formatting events
+    const handleListFormat = (e) => {
+      handleListFormatEvent(e);
+    };
+    
+    document.addEventListener('editor-list-format', handleListFormat);
+    
+    // Listen for input events to handle auto-formatting
+    const contentAreas = document.querySelectorAll('[data-content-area]');
+    contentAreas.forEach(area => {
+      area.addEventListener('input', handleAutoListFormat);
+    });
+    
+    return () => {
+      // ... existing cleanup
+      document.removeEventListener('editor-list-format', handleListFormat);
+      
+      contentAreas.forEach(area => {
+        area.removeEventListener('input', handleAutoListFormat);
+      });
+    };
+  }, [/* dependencies */]);
+
+  // Add or update these list-specific functions in the EditorContent component:
+
+  // Handle list formatting events (from toolbar or keyboard shortcuts)
+  const handleListFormatEvent = (e) => {
+    e.stopPropagation(); // Stop event from bubbling further
+    
+    // Extract list type and style from the event
+    const { listType, listStyle } = e.detail;
+    
+    // Get the current selection
+    const selection = window.getSelection();
+    if (!selection || selection.rangeCount === 0) {
+      console.error("No selection found when formatting list");
+      return;
+    }
+    
+    const range = selection.getRangeAt(0);
+    
+    // Determine the content area - use the one the event was dispatched to
+    const contentArea = e.currentTarget;
+    if (!contentArea || !contentArea.hasAttribute('data-content-area')) {
+      console.error("Event not dispatched to a content area");
+      return;
+    }
+    
+    console.log(`Applying ${listType} list with style ${listStyle} to content area:`, contentArea);
+    
+    // Get the current page number
+    const pageNumber = contentArea.getAttribute('data-page') || '1';
+    
+    // Get all paragraphs in the selection
+    const paragraphs = getSelectedParagraphs(range);
+    
+    // If no paragraphs in selection, try to get the paragraph at cursor
+    if (paragraphs.length === 0) {
+      let node = range.startContainer;
+      if (node.nodeType === Node.TEXT_NODE) {
+        node = node.parentNode;
+      }
+      
+      const paragraph = findParagraphNode(node);
+      if (paragraph) {
+        paragraphs.push(paragraph);
+      } else {
+        console.error("Could not find paragraph to format");
+        return;
+      }
+    }
+    
+    console.log("Paragraphs to format:", paragraphs);
+    
+    // Check if all selected paragraphs are already in the requested list type
+    const allInSameListType = paragraphs.every(p => {
+      const listItem = findListItemParent(p);
+      if (!listItem) return false;
+      
+      const list = listItem.parentNode;
+      return (listType === 'bullet' && list.nodeName === 'UL') ||
+             (listType === 'number' && list.nodeName === 'OL');
+    });
+    
+    // If all paragraphs are already in the requested list type, remove the list formatting
+    if (allInSameListType) {
+      // Convert list items back to paragraphs
+      paragraphs.forEach(p => {
+        const listItem = findListItemParent(p);
+        if (!listItem) return;
+        
+        const list = listItem.parentNode;
+        
+        // Create a new paragraph
+        const newP = document.createElement('p');
+        newP.innerHTML = listItem.innerHTML;
+        
+        // Replace the list item with the paragraph
+        list.parentNode.insertBefore(newP, list);
+        listItem.remove();
+        
+        // If the list is now empty, remove it
+        if (list.children.length === 0) {
+          list.remove();
+        }
+      });
+    } else {
+      // Apply list formatting
+      
+      // Determine the list element to use
+      const newListType = listType === 'bullet' ? 'UL' : 'OL';
+      
+      // Group adjacent paragraphs to create separate lists
+      const paragraphGroups = [];
+      let currentGroup = [];
+      
+      paragraphs.forEach((p, index) => {
+        if (index === 0) {
+          currentGroup.push(p);
+        } else {
+          const prevP = paragraphs[index - 1];
+          
+          // Check if paragraphs are siblings or directly adjacent
+          const areAdjacent = prevP.nextElementSibling === p || 
+                             prevP.parentNode === p.parentNode;
+          
+          if (areAdjacent) {
+            currentGroup.push(p);
+          } else {
+            // Start a new group
+            paragraphGroups.push([...currentGroup]);
+            currentGroup = [p];
+          }
+        }
+      });
+      
+      // Add the last group if it's not empty
+      if (currentGroup.length > 0) {
+        paragraphGroups.push(currentGroup);
+      }
+      
+      // Process each group of paragraphs
+      paragraphGroups.forEach(group => {
+        // Create a new list
+        const newList = document.createElement(newListType);
+        
+        // Insert the list before the first paragraph in the group
+        const firstPara = group[0];
+        firstPara.parentNode.insertBefore(newList, firstPara);
+        
+        // Convert each paragraph to a list item
+        group.forEach(p => {
+          // Create a new list item
+          const newItem = document.createElement('LI');
+          newItem.style.listStyleType = listStyle;
+          newItem.innerHTML = p.innerHTML;
+          
+          // Add the list item to the list
+          newList.appendChild(newItem);
+          
+          // Remove the original paragraph
+          p.remove();
+        });
+        
+        // Update styles for nested lists
+        updateListStyles(newList);
+      });
+    }
+    
+    // Dispatch an input event to ensure changes are detected
+    contentArea.dispatchEvent(new Event('input', { bubbles: true }));
+    
+    // Force a history save after changes
+    setTimeout(() => {
+      saveHistory(ActionTypes.COMPLETE);
+    }, 10);
+  };
+
+  // Handle creating a list when user types * or - or 1. at the start of a line
+  const handleAutoListFormat = (e) => {
+    // Check if we're in a content area
+    const contentArea = findContentArea(e.target);
+    if (!contentArea) return;
+    
+    // Get current selection
+    const selection = window.getSelection();
+    if (!selection || selection.rangeCount === 0 || !selection.isCollapsed) return;
+    
+    const range = selection.getRangeAt(0);
+    
+    // Check if we're in a text node
+    if (range.startContainer.nodeType !== Node.TEXT_NODE) return;
+    
+    // Find the current paragraph
+    const paragraph = findParagraphNode(range.startContainer);
+    if (!paragraph) return;
+    
+    // Don't process if already in a list
+    if (findListItemParent(paragraph)) return;
+    
+    // Get text content of the paragraph
+    const text = paragraph.textContent;
+    
+    // Check bullet markers (*, -, •)
+    if (text === '* ' || text === '- ' || text === '• ') {
+      e.preventDefault();
+      
+      // Create bullet list
+      const list = document.createElement('ul');
+      const item = document.createElement('li');
+      item.style.listStyleType = 'disc';
+      item.innerHTML = '<br>';
+      list.appendChild(item);
+      
+      // Replace paragraph
+      paragraph.parentNode.insertBefore(list, paragraph);
+      paragraph.remove();
+      
+      // Place cursor in new list item
+      const newRange = document.createRange();
+      newRange.setStart(item, 0);
+      newRange.collapse(true);
+      selection.removeAllRanges();
+      selection.addRange(newRange);
+      
+      saveHistory(ActionTypes.COMPLETE);
+      return;
+    }
+    
+    // Check numbered list markers (1. or 1))
+    const numberPattern = /^(\d+)[.)] $/;
+    const match = text.match(numberPattern);
+    
+    if (match) {
+      e.preventDefault();
+      
+      // Create numbered list
+      const list = document.createElement('ol');
+      const item = document.createElement('li');
+      item.style.listStyleType = 'decimal';
+      item.innerHTML = '<br>';
+      list.appendChild(item);
+      
+      // Replace paragraph
+      paragraph.parentNode.insertBefore(list, paragraph);
+      paragraph.remove();
+      
+      // Place cursor in new list item
+      const newRange = document.createRange();
+      newRange.setStart(item, 0);
+      newRange.collapse(true);
+      selection.removeAllRanges();
+      selection.addRange(newRange);
+      
+      saveHistory(ActionTypes.COMPLETE);
+    }
   };
 
   return (

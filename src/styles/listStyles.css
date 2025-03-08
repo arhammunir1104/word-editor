@@ -1,222 +1,181 @@
 /* Base styles for lists */
 ul, ol {
   margin: 0;
-  padding-left: 1.5em;
+  padding-left: 40px;
 }
 
-/* Bullet list styles - exactly like Google Docs */
+/* Bullet styles for different levels - exactly like Google Docs */
 ul {
-  list-style-type: disc;
-  margin-left: 0;
-  padding-left: 40px;
+  list-style-type: disc; /* Level 1: Solid Circle */
 }
 
 ul ul {
-  list-style-type: circle;
+  list-style-type: circle; /* Level 2: Hollow Circle */
 }
 
 ul ul ul {
-  list-style-type: square;
+  list-style-type: square; /* Level 3: Square */
 }
 
 ul ul ul ul {
-  list-style-type: disc;
+  list-style-type: '➤'; /* Level 4: Arrow */
 }
 
-/* Number list styles - exactly like Google Docs */
+ul ul ul ul ul {
+  list-style-type: '-'; /* Level 5: Dash */
+}
+
+ul ul ul ul ul ul {
+  list-style-type: '✦'; /* Level 6: Star */
+}
+
+/* Numbered list styles */
 ol {
-  list-style-type: decimal;
-  margin-left: 0;
-  padding-left: 40px;
+  list-style-type: decimal; /* Level 1: 1, 2, 3 */
 }
 
 ol ol {
-  list-style-type: lower-alpha;
+  list-style-type: lower-alpha; /* Level 2: a, b, c */
 }
 
 ol ol ol {
-  list-style-type: lower-roman;
+  list-style-type: lower-roman; /* Level 3: i, ii, iii */
 }
 
 ol ol ol ol {
-  list-style-type: decimal;
+  list-style-type: decimal; /* Level 4: back to decimal */
 }
 
 ol ol ol ol ol {
-  list-style-type: lower-alpha;
+  list-style-type: lower-alpha; /* Level 5: back to alpha */
 }
 
-/* Ensure proper spacing */
+/* List item spacing and formatting */
 li {
-  margin-top: 0.25em;
-  margin-bottom: 0.25em;
-}
-
-/* For empty list items */
-li:empty::before {
-  content: '\200B'; /* Zero-width space to prevent collapsing */
-}
-
-/* Fix positioning of manually-specified bullet types */
-li[style*="list-style-type"] {
+  line-height: 1.5;
+  margin: 0;
+  padding: 2px 0;
   position: relative;
-  list-style-position: outside !important;
 }
 
-/* List styles for different nesting levels */
-ul, ol {
-  padding-left: 1.5em;
+/* Ensure empty list items maintain their bullets */
+li:empty::before {
+  content: '\200B'; /* Zero-width space */
+  display: inline;
 }
 
-ul[data-level="1"], ol[data-level="1"] {
-  margin-left: 0;
-}
-
-ul[data-level="2"], ol[data-level="2"] {
-  margin-left: 1em;
-}
-
-ul[data-level="3"], ol[data-level="3"] {
-  margin-left: 1em;
-}
-
-/* Bullet styles for different levels */
-ul[data-level="1"] {
-  list-style-type: disc;
-}
-
-ul[data-level="2"] {
-  list-style-type: circle;
-}
-
-ul[data-level="3"] {
-  list-style-type: square;
-}
-
-/* Number styles for different levels */
-ol[data-level="1"] {
-  list-style-type: decimal;
-}
-
-ol[data-level="2"] {
-  list-style-type: lower-alpha;
-}
-
-ol[data-level="3"] {
-  list-style-type: lower-roman;
-}
-
-/* List item styles */
-li {
-  margin-bottom: 0.5em;
-}
-
-li > ul, li > ol {
-  margin-top: 0.5em;
-}
-
-/* Cursor behavior styles */
-li + li {
-  cursor: text;
-}
-
-/* Multi-paragraph bullet style */
-li p {
-  margin-top: 0.25em;
+/* Make sure that list items with different styles render correctly */
+li[style*="list-style-type"] {
   margin-bottom: 0.25em;
 }
 
-/* Ensure proper indentation */
-[data-list-level="1"] {
-  padding-left: 0;
-}
-
-[data-list-level="2"] {
-  padding-left: 40px;
-}
-
-[data-list-level="3"] {
-  padding-left: 80px;
-}
-
-[data-list-level="4"] {
-  padding-left: 120px;
-}
-
-[data-list-level="5"] {
-  padding-left: 160px;
-}
-
-/* Google Docs-style list formatting */
-
-/* Increase specificity to ensure our styles take precedence */
-[contenteditable] ul, 
-[contenteditable] ol {
+/* All contenteditable areas */
+[contenteditable="true"] ul,
+[contenteditable="true"] ol {
   padding-left: 40px;
   margin: 0;
 }
 
-/* Standard bullet styles */
-[contenteditable] ul[data-list-level="1"] {
-  list-style-type: disc;
+/* Selection highlighting in lists */
+[contenteditable="true"] li::selection,
+[contenteditable="true"] li *::selection {
+  background-color: rgba(66, 133, 244, 0.3);
 }
 
-[contenteditable] ul[data-list-level="2"] {
-  list-style-type: circle;
+/* Specific styling for content areas */
+[data-content-area] ul,
+[data-content-area] ol {
+  padding-left: 40px !important;
+  margin-top: 0 !important;
+  margin-bottom: 0 !important;
 }
 
-[contenteditable] ul[data-list-level="3"] {
-  list-style-type: square;
+/* Ensure bullets appear properly in all editor modes */
+.page ul,
+.page ol {
+  padding-left: 40px !important;
+  margin-top: 0 !important;
+  margin-bottom: 0 !important;
 }
 
-/* Custom triangle bullets for level 4 */
-[contenteditable] ul[data-list-level="4"],
-[contenteditable] ul.triangle-bullets {
-  list-style-type: disclosure-closed;
+/* Nested list spacing */
+[data-content-area] li > ul,
+[data-content-area] li > ol,
+.page li > ul,
+.page li > ol {
+  margin-top: 0 !important;
+  margin-bottom: 0 !important;
 }
 
-/* Fix for Firefox which may not support disclosure-closed */
-@-moz-document url-prefix() {
-  [contenteditable] ul[data-list-level="4"],
-  [contenteditable] ul.triangle-bullets {
-    list-style-type: '▶ ';
-  }
+/* Specific bullet styles for editor content */
+[data-content-area] li[style*="list-style-type: disc"],
+.page li[style*="list-style-type: disc"] {
+  list-style-type: disc !important;
 }
 
-/* Numbered list styles */
-[contenteditable] ol[data-list-level="1"] {
-  list-style-type: decimal;
+[data-content-area] li[style*="list-style-type: circle"],
+.page li[style*="list-style-type: circle"] {
+  list-style-type: circle !important;
 }
 
-[contenteditable] ol[data-list-level="2"] {
-  list-style-type: lower-alpha;
+[data-content-area] li[style*="list-style-type: square"],
+.page li[style*="list-style-type: square"] {
+  list-style-type: square !important;
 }
 
-[contenteditable] ol[data-list-level="3"] {
-  list-style-type: lower-roman;
+/* Level 4+ bullets */
+[data-content-area] li[style*="list-style-type: '➤'"],
+.page li[style*="list-style-type: '➤'"] {
+  list-style-type: '➤' !important;
 }
 
-[contenteditable] ol[data-list-level="4"] {
-  list-style-type: upper-alpha;
+[data-content-area] li[style*="list-style-type: '-'"],
+.page li[style*="list-style-type: '-'"] {
+  list-style-type: '-' !important;
 }
 
-[contenteditable] ol[data-list-level="5"] {
-  list-style-type: upper-roman;
+[data-content-area] li[style*="list-style-type: '✦'"],
+.page li[style*="list-style-type: '✦'"] {
+  list-style-type: '✦' !important;
 }
 
-/* List item spacing */
-[contenteditable] li {
-  margin-bottom: 0.25em;
+/* Specific number styles */
+[data-content-area] li[style*="list-style-type: decimal"],
+.page li[style*="list-style-type: decimal"] {
+  list-style-type: decimal !important;
 }
 
-/* Ensure proper indentation for nested lists */
-[contenteditable] li > ul, 
-[contenteditable] li > ol {
-  margin-top: 0.25em;
+[data-content-area] li[style*="list-style-type: lower-alpha"],
+.page li[style*="list-style-type: lower-alpha"] {
+  list-style-type: lower-alpha !important;
 }
 
-/* Focus indicators for better usability */
-[contenteditable] li:focus {
-  outline: none;
-  background-color: rgba(0, 0, 255, 0.05);
+[data-content-area] li[style*="list-style-type: upper-alpha"],
+.page li[style*="list-style-type: upper-alpha"] {
+  list-style-type: upper-alpha !important;
+}
+
+[data-content-area] li[style*="list-style-type: lower-roman"],
+.page li[style*="list-style-type: lower-roman"] {
+  list-style-type: lower-roman !important;
+}
+
+[data-content-area] li[style*="list-style-type: upper-roman"],
+.page li[style*="list-style-type: upper-roman"] {
+  list-style-type: upper-roman !important;
+}
+
+/* Extra spacing for list items for better usability */
+[contenteditable="true"] li {
+  min-height: 1.5em;
+}
+
+/* Ensure paragraph spacing inside list items is consistent */
+[contenteditable="true"] li > p {
+  margin: 0;
+}
+
+/* Small spacing between list items */
+[contenteditable="true"] li + li {
+  margin-top: 1px;
 } 
