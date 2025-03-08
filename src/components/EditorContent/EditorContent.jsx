@@ -219,6 +219,9 @@ const EditorContent = () => {
     // Prevent default tab behavior
     e.preventDefault();
     
+    // Add debug logging
+    console.log('handleTabKey called with shift key:', e.shiftKey);
+    
     // Save history before making changes
     saveHistory(ActionTypes.COMPLETE);
     
@@ -234,6 +237,7 @@ const EditorContent = () => {
     
     // Determine indent direction: Tab = increase, Shift+Tab = decrease
     const direction = e.shiftKey ? 'decrease' : 'increase';
+    console.log('Tab direction determined as:', direction);
     
     // Check if the selection is within a list item
     const listItem = getListItem(node);
@@ -1797,6 +1801,22 @@ const EditorContent = () => {
         if (e.key === 'Tab') {
         console.log(`Global Tab handler caught: ${e.shiftKey ? 'Shift+Tab' : 'Tab'}`);
         
+        // Enhanced shift+tab debugging: Log the actual event object
+        if (e.shiftKey) {
+          console.log('Shift+Tab event detected with properties:', {
+            key: e.key,
+            shiftKey: e.shiftKey,
+            ctrlKey: e.ctrlKey,
+            altKey: e.altKey,
+            metaKey: e.metaKey,
+            bubbles: e.bubbles,
+            cancelable: e.cancelable,
+            composed: e.composed,
+            timeStamp: e.timeStamp,
+            defaultPrevented: e.defaultPrevented
+          });
+        }
+        
         // Check if any editor area is active or contains selection
         const contentAreas = document.querySelectorAll('[data-content-area="true"]');
         let editorHasFocus = false;
@@ -1909,8 +1929,17 @@ const EditorContent = () => {
             }
           }
           
-          // Use our enhanced Tab handler as fallback
-          handleTabKey(e, focusedPageNumber);
+          // Use our enhanced Tab handler as fallback - create a fresh event object to ensure 
+          // the shift key state is properly preserved
+          const newEvent = {
+            ...e,
+            key: 'Tab',
+            shiftKey: e.shiftKey,
+            preventDefault: e.preventDefault.bind(e),
+            stopPropagation: e.stopPropagation.bind(e),
+            stopImmediatePropagation: e.stopImmediatePropagation.bind(e)
+          };
+          handleTabKey(newEvent, focusedPageNumber);
           return false;
         }
       }
@@ -2585,6 +2614,80 @@ const EditorContent = () => {
       selection.addRange(newRange);
       
       saveHistory(ActionTypes.COMPLETE);
+    }
+  };
+
+  // Add this function right after getListItem function
+  const handleListIndentation = (listItem, action) => {
+    if (!listItem) return false;
+    
+    // Log the action for debugging
+    console.log('List indentation action:', action, 'on list item:', listItem);
+    
+    try {
+      const parentList = listItem.parentNode;
+      if (!parentList) return false;
+      
+      // Get the root list to determine level
+      const rootList = findRootList(parentList);
+      if (!rootList) return false;
+      
+      // Get current list level
+      const currentLevel = getListLevel(listItem);
+      console.log('Current list level:', currentLevel);
+      
+      // Handle indentation increase
+      if (action === 'indent' && currentLevel < 5) {
+        const prevSibling = listItem.previousElementSibling;
+        
+        // Can only indent if there's a previous list item at the same level
+        if (!prevSibling) return false;
+        
+        // Check if the previous sibling already has a nested list
+        let nestedList = Array.from(prevSibling.children).find(child => 
+          child.nodeName === 'UL' || child.nodeName === 'OL'
+        );
+        
+        // If no nested list exists, create one
+        if (!nestedList) {
+          // Create new sublist with same type as parent
+          nestedList = document.createElement(parentList.nodeName);
+          prevSibling.appendChild(nestedList);
+        }
+        
+        // Move current list item to the nested list
+        nestedList.appendChild(listItem);
+        
+        // Update styles in the affected lists
+        updateListStyles(rootList);
+        
+        return true;
+      }
+      // Handle outdentation (decrease indent)
+      else if (action === 'outdent' && currentLevel > 1) {
+        // Get the parent list item that contains this list
+        const parentItem = findParentWithTag(parentList, 'LI');
+        
+        if (parentItem && parentItem.parentNode) {
+          // Insert the list item after its grandparent item
+          parentItem.parentNode.insertBefore(listItem, parentItem.nextSibling);
+          
+          // Clean up: if the sublist is now empty, remove it
+          if (!parentList.children.length) {
+            parentList.remove();
+          }
+          
+          // Update styles in all affected lists
+          updateListStyles(rootList);
+          
+          return true;
+        }
+      }
+      
+      return false;
+    } catch (error) {
+      console.error('Error in handleListIndentation:', error);
+      return false;
     }
   };
 
