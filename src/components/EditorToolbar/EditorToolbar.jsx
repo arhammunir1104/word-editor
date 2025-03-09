@@ -256,19 +256,15 @@ const EditorToolbar = () => {
       document.body.removeChild(existingTooltip);
     }
     
-    // Create container for tooltip
-    const tooltipContainer = document.createElement('div');
-    tooltipContainer.id = 'hyperlink-tooltip-container';
-    tooltipContainer.style.position = 'absolute';
-    tooltipContainer.style.zIndex = '2000';
-    document.body.appendChild(tooltipContainer);
-    
-    // Add hover/click listeners to all hyperlinks
-    const hyperlinks = document.querySelectorAll('.editor-hyperlink');
-    console.log(`Found ${hyperlinks.length} hyperlinks`);
+    // Remove any existing temporary anchors
+    const existingAnchor = document.getElementById('hyperlink-temp-anchor');
+    if (existingAnchor) {
+      document.body.removeChild(existingAnchor);
+    }
     
     // Add styles to make links more interactive
     const linkStyles = document.createElement('style');
+    linkStyles.setAttribute('data-hyperlink-styles', 'true');
     linkStyles.textContent = `
       .editor-hyperlink {
         color: #0563c1 !important;
@@ -278,18 +274,41 @@ const EditorToolbar = () => {
         z-index: 1 !important;
         padding: 0 1px !important;
         border-radius: 2px !important;
+        transition: background-color 0.15s ease-in-out !important;
       }
       .editor-hyperlink:hover {
-        background-color: rgba(0, 0, 255, 0.05) !important;
+        background-color: rgba(5, 99, 193, 0.1) !important;
         text-decoration: underline !important;
+        box-shadow: 0 0 0 1px rgba(5, 99, 193, 0.2) !important;
+      }
+      .editor-hyperlink:active {
+        background-color: rgba(5, 99, 193, 0.15) !important;
+      }
+      
+      /* Fix for tooltip container */
+      #hyperlink-tooltip-container {
+        position: absolute;
+        z-index: 9999;
       }
     `;
+    
+    // Remove existing style elements first
+    const existingStyles = document.querySelector('style[data-hyperlink-styles="true"]');
+    if (existingStyles) {
+      existingStyles.remove();
+    }
+    
     document.head.appendChild(linkStyles);
+    
+    // Add hover/click listeners to all hyperlinks
+    const hyperlinks = document.querySelectorAll('.editor-hyperlink');
+    console.log(`Found ${hyperlinks.length} hyperlinks`);
     
     hyperlinks.forEach(link => {
       // Remove any existing event listeners
       link.onclick = null;
       link.onmouseenter = null;
+      link.onmouseleave = null;
       
       // Make sure links have the correct styling and class
       link.className = 'editor-hyperlink';
@@ -300,30 +319,75 @@ const EditorToolbar = () => {
         e.stopPropagation();
         console.log("Link clicked directly", e);
         
+        // First remove any existing tooltip
+        const existingTooltip = document.getElementById('hyperlink-tooltip-container');
+        if (existingTooltip && tooltipRootRef.current) {
+          tooltipRootRef.current.unmount();
+          tooltipRootRef.current = null;
+          existingTooltip.remove();
+        }
+        
+        // Remove any existing temporary anchors
+        const existingAnchor = document.getElementById('hyperlink-temp-anchor');
+        if (existingAnchor) {
+          existingAnchor.remove();
+        }
+        
         // Show tooltip
         showTooltipForLink(link);
         return false;
       }, true);
       
-      // Add a direct mouseenter handler
+      // Add a direct mouseenter handler with a small delay to prevent accidental tooltips
+      let hoverTimer = null;
       link.addEventListener('mouseenter', function(e) {
         console.log("Link hovered directly", e);
-        // Show tooltip with a small delay to prevent accidental tooltips
-        setTimeout(() => showTooltipForLink(link), 300);
+        
+        // First clear any existing hover timer
+        if (hoverTimer) {
+          clearTimeout(hoverTimer);
+          hoverTimer = null;
+        }
+        
+        // Only show tooltip on hover after a small delay
+        hoverTimer = setTimeout(() => {
+          // Don't show if tooltip is already visible
+          if (tooltipRootRef.current) return;
+          
+          showTooltipForLink(link);
+        }, 300);
+      }, true);
+      
+      // Clear the hover timer if the mouse leaves before the delay
+      link.addEventListener('mouseleave', function(e) {
+        if (hoverTimer) {
+          clearTimeout(hoverTimer);
+          hoverTimer = null;
+        }
       }, true);
     });
   };
   
   // Extract the tooltip showing logic to be called directly
   const showTooltipForLink = (link) => {
+    // Get link position right away
     const rect = link.getBoundingClientRect();
     const url = link.dataset.url || link.getAttribute('href');
+    
+    // Skip if we can't find a URL (probably not a valid link)
+    if (!url) {
+      console.log("No URL found for link:", link);
+      return;
+    }
     
     // Close any existing tooltip
     if (tooltipRootRef.current) {
       tooltipRootRef.current.unmount();
       tooltipRootRef.current = null;
     }
+    
+    // Calculate the optimal position for the tooltip
+    const position = calculateTooltipPosition(rect);
     
     // Create document click handler to close tooltip when clicking outside
     const handleDocumentClick = (e) => {
@@ -337,86 +401,145 @@ const EditorToolbar = () => {
       }
     };
     
-    // Create a new root and render the tooltip
-    const tooltipContainer = document.getElementById('hyperlink-tooltip-container');
-    if (tooltipContainer) {
-      try {
-        tooltipRootRef.current = ReactDOM.createRoot(tooltipContainer);
-        tooltipRootRef.current.render(
-          <HyperlinkTooltip
-            position={{ top: rect.bottom + window.scrollY + 10, left: rect.left + window.scrollX }}
-            url={url}
-            onClose={() => {
-              if (tooltipRootRef.current) {
-                tooltipRootRef.current.unmount();
-                tooltipRootRef.current = null;
-              }
-              document.removeEventListener('click', handleDocumentClick);
-            }}
-            onEdit={(newUrl) => {
-              // Save history before updating the link
-              saveHistory(ActionTypes.COMPLETE);
-              
-              // Update the link URL
-              link.href = newUrl;
-              link.setAttribute('href', newUrl);
-              link.dataset.url = newUrl;
-              
-              // Force a refresh of the link appearance
-              const originalText = link.textContent;
-              const parent = link.parentNode;
-              const newLink = document.createElement('a');
-              newLink.href = newUrl;
-              newLink.target = '_blank';
-              newLink.rel = 'noopener noreferrer';
-              newLink.className = 'editor-hyperlink';
-              newLink.dataset.url = newUrl;
-              newLink.textContent = originalText;
-              
-              // Apply styling
-              newLink.style.color = '#0563c1';
-              newLink.style.textDecoration = 'underline';
-              newLink.style.cursor = 'pointer';
-              newLink.style.position = 'relative';
-              newLink.style.zIndex = '1';
-              newLink.style.padding = '0 1px';
-              
-              // Replace the old link with the new one
-              parent.replaceChild(newLink, link);
-              
-              // Close the tooltip
-              if (tooltipRootRef.current) {
-                tooltipRootRef.current.unmount();
-                tooltipRootRef.current = null;
-              }
-              document.removeEventListener('click', handleDocumentClick);
-              
-              // Reattach event listeners to the new link
-              setTimeout(() => setupHyperlinkEventListeners(), 0);
-            }}
-            onDelete={() => {
-              // Delete implementation remains the same
-              saveHistory(ActionTypes.COMPLETE);
-              const textNode = document.createTextNode(link.textContent);
-              link.parentNode.replaceChild(textNode, link);
-              
-              if (tooltipRootRef.current) {
-                tooltipRootRef.current.unmount();
-                tooltipRootRef.current = null;
-              }
-              document.removeEventListener('click', handleDocumentClick);
-              
-              setTimeout(setupHyperlinkEventListeners, 0);
-            }}
-          />
-        );
-        
-        // Add document click listener with a delay to allow internal tooltip clicks
-        setTimeout(() => {
-          document.addEventListener('click', handleDocumentClick);
-        }, 100);
-      } catch (error) {
-        console.error("Error rendering hyperlink tooltip:", error);
+    // Register the document click handler
+    document.addEventListener('click', handleDocumentClick);
+    
+    // Create a temporary physical anchor element right at the link's position
+    // This ensures the tooltip appears at the correct position in the DOM
+    const tempAnchor = document.createElement('div');
+    tempAnchor.style.position = 'absolute';
+    tempAnchor.style.left = `${position.left}px`;
+    tempAnchor.style.top = `${position.top}px`;
+    tempAnchor.style.width = '2px';
+    tempAnchor.style.height = '2px';
+    tempAnchor.style.backgroundColor = 'transparent';
+    tempAnchor.style.zIndex = '-1'; // Hide it behind other content
+    tempAnchor.id = 'hyperlink-temp-anchor';
+    document.body.appendChild(tempAnchor);
+    
+    // Create a new tooltip container that will be positioned relative to our anchor
+    const existingContainer = document.getElementById('hyperlink-tooltip-container');
+    if (existingContainer) {
+      existingContainer.remove();
+    }
+    
+    const tooltipContainer = document.createElement('div');
+    tooltipContainer.id = 'hyperlink-tooltip-container';
+    tooltipContainer.style.position = 'absolute';
+    tooltipContainer.style.zIndex = '9999';
+    tooltipContainer.style.left = `${position.left}px`;
+    tooltipContainer.style.top = `${position.top}px`;
+    document.body.appendChild(tooltipContainer);
+    
+    try {
+      tooltipRootRef.current = ReactDOM.createRoot(tooltipContainer);
+      tooltipRootRef.current.render(
+        <HyperlinkTooltip
+          url={url}
+          onClose={() => {
+            document.removeEventListener('click', handleDocumentClick);
+            if (tooltipRootRef.current) {
+              tooltipRootRef.current.unmount();
+              tooltipRootRef.current = null;
+            }
+            
+            // Remove the temporary anchor
+            const tempAnchor = document.getElementById('hyperlink-temp-anchor');
+            if (tempAnchor) {
+              document.body.removeChild(tempAnchor);
+            }
+            
+            // Remove the tooltip container
+            if (tooltipContainer && document.body.contains(tooltipContainer)) {
+              document.body.removeChild(tooltipContainer);
+            }
+          }}
+          onEdit={(newUrl) => {
+            // Save history before updating the link
+            saveHistory(ActionTypes.COMPLETE);
+            
+            // Update the link URL
+            link.href = newUrl;
+            link.setAttribute('href', newUrl);
+            link.dataset.url = newUrl;
+            
+            // Force a refresh of the link appearance
+            const originalText = link.textContent;
+            const parent = link.parentNode;
+            const newLink = document.createElement('a');
+            newLink.href = newUrl;
+            newLink.target = '_blank';
+            newLink.rel = 'noopener noreferrer';
+            newLink.className = 'editor-hyperlink';
+            newLink.dataset.url = newUrl;
+            newLink.textContent = originalText;
+            
+            // Apply styling
+            newLink.style.color = '#0563c1';
+            newLink.style.textDecoration = 'underline';
+            newLink.style.cursor = 'pointer';
+            newLink.style.position = 'relative';
+            newLink.style.zIndex = '1';
+            newLink.style.padding = '0 1px';
+            
+            // Replace the old link with the new one
+            parent.replaceChild(newLink, link);
+            
+            // Close the tooltip
+            if (tooltipRootRef.current) {
+              tooltipRootRef.current.unmount();
+              tooltipRootRef.current = null;
+            }
+            
+            // Remove the temporary anchor
+            const tempAnchor = document.getElementById('hyperlink-temp-anchor');
+            if (tempAnchor) {
+              document.body.removeChild(tempAnchor);
+            }
+            
+            // Update the hyperlink event listeners
+            setTimeout(() => setupHyperlinkEventListeners(), 0);
+            
+            // Save history after changes
+            setTimeout(() => saveHistory(ActionTypes.COMPLETE), 50);
+          }}
+          onDelete={() => {
+            // Save history before removing the link
+            saveHistory(ActionTypes.COMPLETE);
+            
+            // Get the link text content
+            const textContent = link.textContent;
+            
+            // Create a text node to replace the link
+            const textNode = document.createTextNode(textContent);
+            
+            // Replace the link with the text node
+            link.parentNode.replaceChild(textNode, link);
+            
+            // Close the tooltip
+            if (tooltipRootRef.current) {
+              tooltipRootRef.current.unmount();
+              tooltipRootRef.current = null;
+            }
+            
+            // Remove the temporary anchor
+            const tempAnchor = document.getElementById('hyperlink-temp-anchor');
+            if (tempAnchor) {
+              document.body.removeChild(tempAnchor);
+            }
+            
+            // Save history after changes
+            setTimeout(() => saveHistory(ActionTypes.COMPLETE), 50);
+          }}
+        />
+      );
+    } catch (error) {
+      console.error("Error rendering hyperlink tooltip:", error);
+      
+      // Clean up if there's an error
+      const tempAnchor = document.getElementById('hyperlink-temp-anchor');
+      if (tempAnchor) {
+        document.body.removeChild(tempAnchor);
       }
     }
   };
@@ -1388,6 +1511,73 @@ const EditorToolbar = () => {
     } else {
       console.error('No content area found in the document!');
     }
+  };
+
+  // Function to calculate the best position for the tooltip relative to the link
+  const calculateTooltipPosition = (linkRect) => {
+    // Get the viewport dimensions
+    const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
+    
+    // Find the document pages
+    const docPages = document.querySelectorAll('[data-page]');
+    let activePage = null;
+    
+    // Try to find which page contains this link
+    for (const page of docPages) {
+      const pageRect = page.getBoundingClientRect();
+      // Check if the link overlaps with this page
+      if (linkRect.top >= pageRect.top && 
+          linkRect.bottom <= pageRect.bottom &&
+          linkRect.left >= pageRect.left &&
+          linkRect.right <= pageRect.right) {
+        activePage = page;
+        break;
+      }
+    }
+    
+    // Initial position - right below the link
+    let top = linkRect.bottom + window.scrollY + 5;
+    let left = linkRect.left + window.scrollX;
+    
+    // Width of the tooltip
+    const tooltipWidth = 320;
+    const tooltipHeight = 170; // Approximate
+    
+    // If we found the active page, make sure tooltip stays within page boundaries if possible
+    if (activePage) {
+      const pageRect = activePage.getBoundingClientRect();
+      
+      // Check if tooltip would go off the right edge of the page
+      if (left + tooltipWidth > pageRect.right + window.scrollX - 20) {
+        // Align with right edge of the link
+        left = Math.max(pageRect.left + window.scrollX + 20, linkRect.right + window.scrollX - tooltipWidth);
+      }
+      
+      // Check if tooltip would go off the bottom edge of the page
+      if (top + tooltipHeight > pageRect.bottom + window.scrollY - 20) {
+        // Position above the link
+        top = linkRect.top + window.scrollY - tooltipHeight - 5;
+      }
+    } else {
+      // Fallback if we couldn't find the page - use viewport boundaries
+      
+      // Check if tooltip would go off right edge of viewport
+      if (left + tooltipWidth > viewportWidth + window.scrollX - 20) {
+        left = Math.max(window.scrollX + 20, viewportWidth + window.scrollX - tooltipWidth - 20);
+      }
+      
+      // Check if tooltip would go off bottom of viewport
+      if (top + tooltipHeight > viewportHeight + window.scrollY - 20) {
+        top = linkRect.top + window.scrollY - tooltipHeight - 5;
+      }
+    }
+    
+    // Make sure tooltip is always visible in the viewport
+    left = Math.max(20 + window.scrollX, Math.min(viewportWidth - tooltipWidth - 20 + window.scrollX, left));
+    top = Math.max(20 + window.scrollY, top);
+    
+    return { top, left };
   };
 
   return (

@@ -8,7 +8,8 @@ import {
   Button, 
   Typography,
   Box,
-  Alert
+  Alert,
+  Popover
 } from '@mui/material';
 import { useEditorHistory } from '../../context/EditorHistoryContext';
 
@@ -21,11 +22,50 @@ const HyperlinkModal = ({
 }) => {
   const [url, setUrl] = useState(initialUrl);
   const [error, setError] = useState('');
+  const [anchorEl, setAnchorEl] = useState(null);
   const { saveHistory, ActionTypes } = useEditorHistory();
 
   useEffect(() => {
     setUrl(initialUrl);
     setError('');
+    
+    // Set anchor element based on current selection when opened
+    if (open) {
+      const selection = window.getSelection();
+      if (selection && selection.rangeCount > 0) {
+        const range = selection.getRangeAt(0);
+        const rect = range.getBoundingClientRect();
+        
+        // Create a temporary anchor element at the selection position
+        const tempAnchor = document.createElement('div');
+        tempAnchor.style.position = 'absolute';
+        tempAnchor.style.left = `${rect.left + window.scrollX}px`;
+        tempAnchor.style.top = `${rect.bottom + window.scrollY}px`;
+        tempAnchor.style.width = '1px';
+        tempAnchor.style.height = '1px';
+        tempAnchor.style.pointerEvents = 'none';
+        
+        document.body.appendChild(tempAnchor);
+        setAnchorEl(tempAnchor);
+      }
+    } else {
+      // Clean up temporary anchor element
+      if (anchorEl) {
+        document.body.removeChild(anchorEl);
+        setAnchorEl(null);
+      }
+    }
+    
+    return () => {
+      // Clean up on unmount
+      if (anchorEl) {
+        try {
+          document.body.removeChild(anchorEl);
+        } catch (e) {
+          console.error('Error removing anchor element:', e);
+        }
+      }
+    };
   }, [initialUrl, open]);
 
   const validateUrl = (url) => {
@@ -55,24 +95,37 @@ const HyperlinkModal = ({
     }
   };
 
+  const handleClose = () => {
+    onClose();
+  };
+
   return (
-    <Dialog 
-      open={open} 
-      onClose={onClose}
-      maxWidth="sm"
-      fullWidth
+    <Popover
+      open={open && !!anchorEl}
+      anchorEl={anchorEl}
+      onClose={handleClose}
+      anchorOrigin={{
+        vertical: 'bottom',
+        horizontal: 'left',
+      }}
+      transformOrigin={{
+        vertical: 'top',
+        horizontal: 'left',
+      }}
       PaperProps={{
         sx: {
+          width: '450px',
+          p: 2,
           borderRadius: '8px',
-          boxShadow: '0 8px 24px rgba(0,0,0,0.15)'
+          boxShadow: '0 4px 20px rgba(0,0,0,0.15)'
         }
       }}
     >
-      <DialogTitle sx={{ fontWeight: 600 }}>
+      <DialogTitle sx={{ p: 0, pb: 2, fontWeight: 600 }}>
         Insert Hyperlink
       </DialogTitle>
       
-      <DialogContent>
+      <DialogContent sx={{ p: 0, pb: 2 }}>
         {selectedText && (
           <Box sx={{ mb: 2 }}>
             <Typography variant="subtitle2" sx={{ mb: 0.5, fontWeight: 600 }}>
@@ -101,18 +154,18 @@ const HyperlinkModal = ({
           placeholder="https://example.com"
           helperText="External URLs only (must start with http:// or https://)"
           error={!!error}
-          sx={{ mt: 2 }}
+          sx={{ mt: 2, mb: 1 }}
         />
         
         {error && (
-          <Alert severity="error" sx={{ mt: 2 }}>
+          <Alert severity="error" sx={{ mt: 1, mb: 1 }}>
             {error}
           </Alert>
         )}
       </DialogContent>
       
-      <DialogActions sx={{ p: 2 }}>
-        <Button onClick={onClose} sx={{ textTransform: 'none' }}>
+      <DialogActions sx={{ p: 0, pt: 1 }}>
+        <Button onClick={handleClose} sx={{ textTransform: 'none' }}>
           Cancel
         </Button>
         <Button 
@@ -123,7 +176,7 @@ const HyperlinkModal = ({
           Insert Link
         </Button>
       </DialogActions>
-    </Dialog>
+    </Popover>
   );
 };
 
