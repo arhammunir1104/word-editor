@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { AppBar, Toolbar, Typography, IconButton, TextField, Avatar, Menu, MenuItem, 
          Divider, ListItemIcon, ListItemText, Box, Dialog, DialogTitle, DialogContent, 
          DialogActions, Button, List, ListItem, DialogContentText, Table, TableBody, 
@@ -37,6 +37,7 @@ import {
 import { useNavigate } from 'react-router-dom';
 import { useEditor } from '../../context/EditorContext';
 import { useEditorHistory } from '../../context/EditorHistoryContext';
+import { printDocument } from '../EditorToolbar/EditorToolbar';
 
 const EditorHeader = () => {
   const navigate = useNavigate();
@@ -440,14 +441,14 @@ startxref
     }
   };
 
-  // Fix Print to use the toolbar print function
+  // Use the imported printDocument function
   const handlePrint = () => {
-    // Access the EditorToolbar print function if available
+    // First check if the global function is available (for backward compatibility)
     if (typeof window.editorToolbarPrint === 'function') {
       window.editorToolbarPrint();
     } else {
-      // Fallback to browser print
-      window.print();
+      // Use the directly imported function
+      printDocument();
     }
   };
 

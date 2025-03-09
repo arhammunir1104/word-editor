@@ -43,6 +43,431 @@ import * as ReactDOM from 'react-dom/client';
 import TableButton from '../Table/TableButton';
 import { LineSpacingButton } from '../LineSpacing';
 
+// Define printDocument function at the module level (outside the component)
+export const printDocument = () => {
+  // Create a new window for printing
+  const printWindow = window.open('', '_blank', 'width=800,height=600');
+  
+  if (!printWindow) {
+    alert("Please allow pop-ups for printing to work correctly.");
+    return;
+  }
+  
+  try {
+    // Get all document pages
+    const documentPages = document.querySelectorAll('[data-page]');
+    
+    if (!documentPages || documentPages.length === 0) {
+      console.error("No document pages found for printing");
+      printWindow.close();
+      return;
+    }
+    
+    // Get document title (or use a default)
+    const documentTitle = document.querySelector('.document-name')?.textContent || 'Document';
+    
+    // Get essential editor styles for printing
+    const printCSS = `
+      @page {
+        size: 8.5in 11in;
+        margin: 0.5in;
+      }
+      
+      body {
+        font-family: Arial, sans-serif;
+        line-height: 1.5;
+        color: #000;
+        margin: 0;
+        padding: 0;
+        background-color: white;
+      }
+      
+      .page {
+        position: relative;
+        width: 8.5in;
+        height: 11in;
+        margin: 0 auto 20px auto;
+        padding: 0.5in;
+        box-sizing: border-box;
+        page-break-after: always;
+        border: 1px solid #ddd;
+        background-color: white;
+        overflow: hidden;
+      }
+      
+      .page:last-child {
+        page-break-after: avoid;
+      }
+      
+      .page-content {
+        position: relative;
+        min-height: 9in;
+        overflow: visible;
+        white-space: pre-wrap;  /* Preserve whitespace and line breaks */
+        word-wrap: break-word;
+        font-family: Arial, sans-serif;
+        font-size: 11pt;
+        line-height: 1.5;
+      }
+      
+      /* Critical for preserving line breaks */
+      .page-content p, 
+      .page-content div {
+        white-space: pre-wrap !important;
+        word-wrap: break-word !important;
+        display: block !important;
+        min-height: 1em !important;
+        margin-bottom: 0.5em !important;
+      }
+      
+      /* Preserve line breaks in all relevant elements */
+      br {
+        display: block !important;
+        content: "" !important;
+        margin-top: 0.5em !important;
+      }
+      
+      .page-header {
+        text-align: center;
+        font-size: 10pt;
+        margin-bottom: 0.5in;
+        min-height: 20px;
+      }
+      
+      .page-footer {
+        text-align: center;
+        font-size: 10pt;
+        margin-top: 0.5in;
+        min-height: 20px;
+      }
+      
+      .page-number {
+        text-align: center;
+        font-size: 9pt;
+        color: #666;
+        margin-top: 0.2in;
+      }
+      
+      /* Preserve indentation and formatting */
+      p, div {
+        margin: 0 0 8px 0;
+        min-height: 1em;
+      }
+      
+      /* Handle indentation levels */
+      [data-indent-level="1"] { margin-left: 40px !important; }
+      [data-indent-level="2"] { margin-left: 80px !important; }
+      [data-indent-level="3"] { margin-left: 120px !important; }
+      [data-indent-level="4"] { margin-left: 160px !important; }
+      [data-indent-level="5"] { margin-left: 200px !important; }
+      
+      /* Lists */
+      ul, ol {
+        padding-left: 40px;
+        margin: 8px 0;
+      }
+      
+      li {
+        margin-bottom: 4px;
+      }
+      
+      /* Tables */
+      table {
+        border-collapse: collapse;
+        width: 100%;
+        margin: 10px 0;
+      }
+      
+      td, th {
+        border: 1px solid #ddd;
+        padding: 8px;
+        text-align: left;
+      }
+      
+      /* Hyperlinks */
+      a {
+        color: #0563c1;
+        text-decoration: underline;
+      }
+      
+      /* Controls */
+      .controls {
+        text-align: center;
+        margin: 20px 0;
+      }
+      
+      .print-btn {
+        background: #4285F4;
+        color: white;
+        border: none;
+        padding: 8px 16px;
+        border-radius: 4px;
+        font-size: 14px;
+        cursor: pointer;
+        margin-right: 10px;
+      }
+      
+      .close-btn {
+        background: #f1f1f1;
+        color: #333;
+        border: 1px solid #ccc;
+        padding: 8px 16px;
+        border-radius: 4px;
+        font-size: 14px;
+        cursor: pointer;
+      }
+      
+      /* Text formatting */
+      .bold, b, strong { font-weight: bold; }
+      .italic, i, em { font-style: italic; }
+      .underline, u { text-decoration: underline; }
+      
+      /* Print mode specific styles */
+      @media print {
+        .controls { display: none; }
+        .page {
+          margin: 0;
+          border: none;
+          box-shadow: none;
+        }
+      }
+    `;
+    
+    // Start the HTML document
+    let printHTML = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>${documentTitle} - Print</title>
+        <meta charset="UTF-8">
+        <style>${printCSS}</style>
+      </head>
+      <body>
+        <div class="controls">
+          <button class="print-btn" onclick="window.print()">Print Document</button>
+          <button class="close-btn" onclick="window.close()">Close</button>
+        </div>
+    `;
+    
+    // Process each page
+    documentPages.forEach((page, index) => {
+      const pageNumber = index + 1;
+      const contentArea = page.querySelector('[data-content-area="true"]');
+      
+      if (!contentArea) {
+        console.warn(`No content area found for page ${pageNumber}`);
+        return;
+      }
+      
+      // Function to clean HTML content and preserve formatting
+      const cleanContent = (element) => {
+        if (!element) return '';
+        
+        // Clone to avoid modifying the original
+        const clone = element.cloneNode(true);
+        
+        try {
+          // Remove problematic elements
+          const problematicElements = clone.querySelectorAll('script, style, [data-mce-bogus]');
+          problematicElements.forEach(el => el.remove());
+          
+          // Remove editor attributes but preserve formatting-related ones
+          const allElements = clone.querySelectorAll('*');
+          allElements.forEach(el => {
+            Array.from(el.attributes).forEach(attr => {
+              const name = attr.name;
+              // Keep attributes related to formatting but remove editor-specific ones
+              if (name.startsWith('data-mce-') || 
+                  name === 'contenteditable' || 
+                  name === 'spellcheck') {
+                el.removeAttribute(name);
+              }
+            });
+            
+            // Fix any hyperlinks with localhost references
+            if (el.tagName === 'A' && el.getAttribute('href')) {
+              const href = el.getAttribute('href');
+              if (href.includes('localhost:5173')) {
+                // Try to extract the actual URL
+                const linkText = el.innerText.trim();
+                if (linkText && linkText.match(/^https?:\/\//)) {
+                  el.setAttribute('href', linkText);
+                } else {
+                  // Remove problematic href but keep link text
+                  el.removeAttribute('href');
+                }
+              }
+            }
+            
+            // Ensure paragraphs and divs preserve line breaks
+            if (el.tagName === 'P' || el.tagName === 'DIV') {
+              el.style.whiteSpace = 'pre-wrap';
+              
+              // Ensure block display
+              if (window.getComputedStyle(el).display.includes('inline')) {
+                el.style.display = 'block';
+              }
+              
+              // Preserve margins
+              if (!el.style.marginBottom) {
+                el.style.marginBottom = '8px';
+              }
+            }
+          });
+          
+          // Process text nodes to ensure newlines are preserved
+          const processTextNodes = (node) => {
+            const childNodes = node.childNodes;
+            
+            for (let i = 0; i < childNodes.length; i++) {
+              const child = childNodes[i];
+              
+              if (child.nodeType === Node.TEXT_NODE) {
+                // If text node contains newlines and isn't wrapped properly, wrap it
+                if (child.textContent.includes('\n') && 
+                    (!child.parentNode || 
+                     (child.parentNode.nodeName !== 'P' && 
+                      child.parentNode.nodeName !== 'DIV' && 
+                      child.parentNode.nodeName !== 'PRE'))) {
+                  
+                  // Create a proper wrapping element
+                  const wrapper = document.createElement('div');
+                  wrapper.style.whiteSpace = 'pre-wrap';
+                  wrapper.textContent = child.textContent;
+                  
+                  // Replace text node with wrapper
+                  child.parentNode.replaceChild(wrapper, child);
+                }
+              } else if (child.nodeType === Node.ELEMENT_NODE) {
+                processTextNodes(child);
+              }
+            }
+          };
+          
+          // Process the entire content to preserve line breaks
+          processTextNodes(clone);
+          
+          // Get HTML with formatting preserved
+          let html = clone.innerHTML;
+          
+          // Clean problematic content
+          html = html
+            .replace(/http:\/\/localhost:5173/g, '')
+            .replace(/https:\/\/localhost:5173/g, '')
+            .replace(/localhost:5173/g, '')
+            .replace(/srcset="[^"]*"/g, '') // Remove srcset which can cause issues
+            .replace(/sdma\s*\.\s*sdma\s*\.\s*sdma/g, '') // Clean up sdma patterns carefully
+            .replace(/(\s*)sdma\s*\./g, ''); // Remove more sdma patterns
+          
+          // If we find excessive sdna corruption, clear the content completely
+          if ((html.match(/sdna/g) || []).length > 20) {
+            console.warn('Detected corrupted content with sdna patterns - clearing');
+            return '';
+          }
+          
+          // Log for debugging
+          console.log('Cleaned HTML content for printing:', 
+                     html.length > 100 ? html.substring(0, 100) + '...' : html);
+          
+          // Final safety check - if the HTML is too short, empty, or just whitespace, use fallback
+          if (!html || html.trim().length < 2) {
+            // Try to extract the raw text content directly as a fallback
+            const rawText = element.innerText || element.textContent || '';
+            if (rawText && rawText.trim().length > 0) {
+              // Format with preserved line breaks
+              return rawText
+                .split(/\r?\n/)
+                .map(line => `<p style="white-space: pre-wrap;">${line || '&nbsp;'}</p>`)
+                .join('');
+            }
+          }
+          
+          return html;
+        } catch (e) {
+          console.error('Error cleaning content:', e);
+          // Fallback to pre-formatted plain text
+          return `<pre>${element.innerText || ''}</pre>`;
+        }
+      };
+      
+      // Get content with formatting preserved
+      const contentHTML = cleanContent(contentArea);
+      
+      // Get header and footer
+      const headerArea = page.querySelector('div[contenteditable]:not([data-content-area="true"]):first-of-type');
+      const footerArea = page.querySelector('div[contenteditable]:not([data-content-area="true"]):last-of-type');
+      
+      const headerHTML = headerArea ? cleanContent(headerArea) : '';
+      const footerHTML = footerArea && footerArea !== headerArea ? cleanContent(footerArea) : '';
+      
+      // Add this page with preserved formatting
+      printHTML += `
+        <div class="page">
+          <div class="page-header">${headerHTML}</div>
+          <div class="page-content">
+            <div class="content-wrapper" style="white-space: pre-wrap; word-wrap: break-word; display: block;">
+              ${contentHTML || '&nbsp;'}
+            </div>
+          </div>
+          <div class="page-footer">
+            ${footerHTML}
+            <div class="page-number">Page ${pageNumber} of ${documentPages.length}</div>
+          </div>
+        </div>
+      `;
+    });
+    
+    // Close the HTML document
+    printHTML += `
+        <div class="controls">
+          <button class="print-btn" onclick="window.print()">Print Document</button>
+          <button class="close-btn" onclick="window.close()">Close</button>
+        </div>
+        <script>
+          // Automatically open print dialog after the page loads
+          window.addEventListener('load', function() {
+            // Slight delay to ensure everything is rendered properly
+            setTimeout(function() {
+              // Check if content looks good before printing
+              if (document.querySelectorAll('.page-content').length > 0) {
+                window.print();
+              }
+            }, 800);
+          });
+          
+          // Add keyboard shortcuts for easier operation
+          document.addEventListener('keydown', function(e) {
+            // Ctrl+P or Cmd+P for printing
+            if ((e.ctrlKey || e.metaKey) && e.key === 'p') {
+              e.preventDefault();
+              window.print();
+            }
+            
+            // Escape to close
+            if (e.key === 'Escape') {
+              window.close();
+            }
+          });
+        </script>
+      </body>
+      </html>
+    `;
+    
+    // Write to the print window
+    printWindow.document.open();
+    printWindow.document.write(printHTML);
+    printWindow.document.close();
+    
+  } catch (error) {
+    console.error('Error preparing document for printing:', error);
+    alert('There was an error preparing the document for printing. Please try again.');
+    
+    if (printWindow) {
+      printWindow.close();
+    }
+  }
+};
+
 const EditorToolbar = () => {
   const { 
     editorState, 
@@ -132,14 +557,12 @@ const EditorToolbar = () => {
 
   const handlePrint = () => {
     // Expose this function globally so the header menu can use it
-    window.editorToolbarPrint = () => {
-      // Your existing print logic
-      window.print();
-    };
+    window.editorToolbarPrint = printDocument;
     
-    window.print();
+    // Execute our custom print function
+    printDocument();
   };
-
+  
   const handleCommentClick = () => {
     const selection = window.getSelection();
     if (selection.rangeCount > 0 && !selection.isCollapsed) {
