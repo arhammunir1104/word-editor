@@ -1,72 +1,184 @@
-/* Base styles for lists */
+/* Comprehensive styling for all list types with unlimited nesting support */
+
+/* Base list styling */
 ul, ol {
-  margin: 0;
-  padding-left: 40px;
+  margin: 0 !important;
+  padding-left: 25px !important;
+  list-style-position: outside !important;
 }
 
-/* Bullet styles for different levels - exactly like Google Docs */
-ul {
-  list-style-type: disc; /* Level 1: Solid Circle */
+/* Remove the default styling of lists to apply our own */
+ul, ol {
+  list-style-position: outside; /* Keep bullets outside text flow */
 }
 
-ul ul {
-  list-style-type: circle; /* Level 2: Hollow Circle */
+/* Basic bullet styles for first 6 levels - these will repeat for deeper nesting */
+/* Level 1 */
+ul > li, 
+ul li:not(ol li):not(ul li ul li):not(ul li ul li ul li):not(ul li ul li ul li ul li):not(ul li ul li ul li ul li ul li) {
+  list-style-type: disc !important;
 }
 
-ul ul ul {
-  list-style-type: square; /* Level 3: Square */
+/* Level 2 */
+ul > li > ul > li,
+ul li ul li:not(ul li ul li ul li):not(ul li ul li ul li ul li):not(ul li ul li ul li ul li ul li) {
+  list-style-type: circle !important;
 }
 
-ul ul ul ul {
-  list-style-type: '➤'; /* Level 4: Arrow */
+/* Level 3 */
+ul > li > ul > li > ul > li,
+ul li ul li ul li:not(ul li ul li ul li ul li):not(ul li ul li ul li ul li ul li) {
+  list-style-type: square !important;
 }
 
-ul ul ul ul ul {
-  list-style-type: '-'; /* Level 5: Dash */
+/* Level 4 */
+ul > li > ul > li > ul > li > ul > li,
+ul li ul li ul li ul li:not(ul li ul li ul li ul li ul li) {
+  list-style-type: '➤' !important;
 }
 
-ul ul ul ul ul ul {
-  list-style-type: '✦'; /* Level 6: Star */
+/* Level 5 */
+ul > li > ul > li > ul > li > ul > li > ul > li,
+ul li ul li ul li ul li ul li:not(ul li ul li ul li ul li ul li ul li) {
+  list-style-type: '-' !important;
 }
 
-/* Numbered list styles */
-ol {
-  list-style-type: decimal; /* Level 1: 1, 2, 3 */
+/* Level 6 */
+ul > li > ul > li > ul > li > ul > li > ul > li > ul > li,
+ul li ul li ul li ul li ul li ul li {
+  list-style-type: '✦' !important;
 }
 
-ol ol {
-  list-style-type: lower-alpha; /* Level 2: a, b, c */
+/* Levels 7-12 (repeat of 1-6) */
+/* Level 7 (repeat of 1) */
+ul > li > ul > li > ul > li > ul > li > ul > li > ul > li > ul > li {
+  list-style-type: disc !important;
 }
 
-ol ol ol {
-  list-style-type: lower-roman; /* Level 3: i, ii, iii */
+/* Level 8 (repeat of 2) */
+ul > li > ul > li > ul > li > ul > li > ul > li > ul > li > ul > li > ul > li {
+  list-style-type: circle !important;
 }
 
-ol ol ol ol {
-  list-style-type: decimal; /* Level 4: back to decimal */
+/* Level 9 (repeat of 3) */
+ul > li > ul > li > ul > li > ul > li > ul > li > ul > li > ul > li > ul > li > ul > li {
+  list-style-type: square !important;
 }
 
-ol ol ol ol ol {
-  list-style-type: lower-alpha; /* Level 5: back to alpha */
+/* Level 10 (repeat of 4) */
+ul > li > ul > li > ul > li > ul > li > ul > li > ul > li > ul > li > ul > li > ul > li > ul > li {
+  list-style-type: '➤' !important;
 }
 
-/* List item spacing and formatting */
+/* Level 11 (repeat of 5) */
+ul > li > ul > li > ul > li > ul > li > ul > li > ul > li > ul > li > ul > li > ul > li > ul > li > ul > li {
+  list-style-type: '-' !important;
+}
+
+/* Level 12 (repeat of 6) */
+ul > li > ul > li > ul > li > ul > li > ul > li > ul > li > ul > li > ul > li > ul > li > ul > li > ul > li > ul > li {
+  list-style-type: '✦' !important;
+}
+
+/* Numbered list styles - first 5 levels */
+/* Level 1 */
+ol > li {
+  list-style-type: decimal !important;
+}
+
+/* Level 2 */
+ol > li > ol > li {
+  list-style-type: lower-alpha !important;
+}
+
+/* Level 3 */
+ol > li > ol > li > ol > li {
+  list-style-type: lower-roman !important;
+}
+
+/* Level 4 */
+ol > li > ol > li > ol > li > ol > li {
+  list-style-type: upper-alpha !important;
+}
+
+/* Level 5 */
+ol > li > ol > li > ol > li > ol > li > ol > li {
+  list-style-type: upper-roman !important;
+}
+
+/* Levels 6-10 (repeat of 1-5) */
+/* Level 6 (repeat of 1) */
+ol > li > ol > li > ol > li > ol > li > ol > li > ol > li {
+  list-style-type: decimal !important;
+}
+
+/* Level 7 (repeat of 2) */
+ol > li > ol > li > ol > li > ol > li > ol > li > ol > li > ol > li {
+  list-style-type: lower-alpha !important;
+}
+
+/* Level 8 (repeat of 3) */
+ol > li > ol > li > ol > li > ol > li > ol > li > ol > li > ol > li > ol > li {
+  list-style-type: lower-roman !important;
+}
+
+/* Level 9 (repeat of 4) */
+ol > li > ol > li > ol > li > ol > li > ol > li > ol > li > ol > li > ol > li > ol > li {
+  list-style-type: upper-alpha !important;
+}
+
+/* Level 10 (repeat of 5) */
+ol > li > ol > li > ol > li > ol > li > ol > li > ol > li > ol > li > ol > li > ol > li > ol > li {
+  list-style-type: upper-roman !important;
+}
+
+/* List item spacing */
 li {
-  line-height: 1.5;
-  margin: 0;
-  padding: 2px 0;
-  position: relative;
+  padding: 2px 0 !important;
+  position: relative !important;
+  line-height: 1.5 !important; 
+  text-wrap: wrap !important;
+  word-wrap: break-word !important;
+  overflow-wrap: break-word !important;
+  max-width: 100% !important;
+}
+
+/* Fix for text wrapping at deep levels */
+li {
+  text-wrap: wrap; /* Modern browsers */
+  word-wrap: break-word; /* Older browsers */
+  overflow-wrap: break-word;
+  max-width: 100%; /* Ensure content doesn't overflow */
+}
+
+/* Proper indentation for deep nesting with text wrapping */
+ul li ul, ol li ol, ul li ol, ol li ul {
+  margin-left: 0 !important;
+  padding-left: 20px !important; /* Slightly reduced padding for deep nesting */
+}
+
+/* Additional padding adjustment for very deep nesting levels */
+ul li ul li ul li ul li ul ul,
+ol li ol li ol li ol li ol ol {
+  padding-left: 15px !important; /* Further reduce padding for deeper nesting */
+}
+
+/* Fix for list alignment - prevent centering of entire list */
+[data-content-area="true"] ul,
+[data-content-area="true"] ol {
+  text-align: left !important;
+  margin-left: 0 !important; 
 }
 
 /* Ensure empty list items maintain their bullets */
 li:empty::before {
-  content: '\200B'; /* Zero-width space */
-  display: inline;
+  content: '\200B' !important; /* Zero-width space */
+  display: inline !important;
 }
 
-/* Make sure that list items with different styles render correctly */
+/* Style fallback for JS-based style assignment */
 li[style*="list-style-type"] {
-  margin-bottom: 0.25em;
+  /* Ensure styles applied via JS take precedence */
 }
 
 /* All contenteditable areas */
@@ -178,4 +290,274 @@ li[style*="list-style-type"] {
 /* Small spacing between list items */
 [contenteditable="true"] li + li {
   margin-top: 1px;
+}
+
+/* Make sure these styles are properly loaded in your application */
+
+/* Base styles for lists */
+ul, ol {
+  margin: 0;
+  padding-left: 40px;
+}
+
+/* Bullet styles for different levels - explicitly defined */
+ul > li {
+  list-style-type: disc !important; /* Level 1: Solid circle */
+}
+
+ul > li > ul > li {
+  list-style-type: circle !important; /* Level 2: Hollow circle */
+}
+
+ul > li > ul > li > ul > li {
+  list-style-type: square !important; /* Level 3: Square */
+}
+
+ul > li > ul > li > ul > li > ul > li {
+  list-style-type: '➤' !important; /* Level 4: Arrow */
+}
+
+ul > li > ul > li > ul > li > ul > li > ul > li {
+  list-style-type: '-' !important; /* Level 5: Dash */
+}
+
+ul > li > ul > li > ul > li > ul > li > ul > li > ul > li {
+  list-style-type: '✦' !important; /* Level 6: Star */
+}
+
+/* Prevent list from getting centered or indented as a whole */
+[data-content-area="true"] > ul,
+[data-content-area="true"] > ol {
+  text-align: left !important;
+  margin-left: 0 !important;
+}
+
+/* BULLET-ONLY styling for unlimited nesting */
+
+/* Base list styling */
+ul, ol {
+  margin: 0 !important;
+  padding-left: 25px !important;
+  list-style-position: outside !important;
+}
+
+/* Reset any potential inheritance issues */
+ul {
+  list-style-type: disc !important;
+}
+
+/* Explicit styling for level 1 */
+ul > li {
+  list-style-type: disc !important;
+}
+
+/* Explicit styling for level 2 */
+ul > li > ul > li {
+  list-style-type: circle !important;
+}
+
+/* Explicit styling for level 3 */
+ul > li > ul > li > ul > li {
+  list-style-type: square !important;
+}
+
+/* Explicit styling for level 4 */
+ul > li > ul > li > ul > li > ul > li {
+  list-style-type: '➤' !important;
+}
+
+/* Explicit styling for level 5 */
+ul > li > ul > li > ul > li > ul > li > ul > li {
+  list-style-type: '-' !important;
+}
+
+/* Explicit styling for level 6 */
+ul > li > ul > li > ul > li > ul > li > ul > li > ul > li {
+  list-style-type: '✦' !important;
+}
+
+/* Repeat for levels 7-12 (repeat the pattern) */
+ul > li > ul > li > ul > li > ul > li > ul > li > ul > li > ul > li {
+  list-style-type: disc !important;
+}
+
+ul > li > ul > li > ul > li > ul > li > ul > li > ul > li > ul > li > ul > li {
+  list-style-type: circle !important;
+}
+
+ul > li > ul > li > ul > li > ul > li > ul > li > ul > li > ul > li > ul > li > ul > li {
+  list-style-type: square !important;
+}
+
+ul > li > ul > li > ul > li > ul > li > ul > li > ul > li > ul > li > ul > li > ul > li > ul > li {
+  list-style-type: '➤' !important;
+}
+
+ul > li > ul > li > ul > li > ul > li > ul > li > ul > li > ul > li > ul > li > ul > li > ul > li > ul > li {
+  list-style-type: '-' !important;
+}
+
+ul > li > ul > li > ul > li > ul > li > ul > li > ul > li > ul > li > ul > li > ul > li > ul > li > ul > li > ul > li {
+  list-style-type: '✦' !important;
+}
+
+/* CRITICAL: Prevent OL (numbered) styling from appearing in UL (bullet) lists */
+ul li {
+  list-style-image: none !important;
+  list-style-position: outside !important;
+}
+
+/* Explicitly remove decimal/numeric styling from bullets */
+ul li {
+  list-style-type: none !important; /* Reset first */
+}
+
+/* Then apply the correct style using attribute selectors for better specificity */
+li[style*="list-style-type: disc"] {
+  list-style-type: disc !important;
+}
+
+li[style*="list-style-type: circle"] {
+  list-style-type: circle !important;
+}
+
+li[style*="list-style-type: square"] {
+  list-style-type: square !important;
+}
+
+li[style*="list-style-type: '➤'"] {
+  list-style-type: '➤' !important;
+}
+
+li[style*="list-style-type: '-'"] {
+  list-style-type: '-' !important;
+}
+
+li[style*="list-style-type: '✦'"] {
+  list-style-type: '✦' !important;
+}
+
+/* Fix for text wrapping at deep levels */
+li {
+  padding: 2px 0 !important;
+  position: relative !important;
+  line-height: 1.5 !important; 
+  text-wrap: wrap !important;
+  word-wrap: break-word !important;
+  overflow-wrap: break-word !important;
+  max-width: 100% !important;
+}
+
+/* Proper indentation for deep nesting with progressive reduction */
+ul li ul, ol li ol, ul li ol, ol li ul {
+  margin-left: 0 !important;
+  padding-left: 20px !important;
+}
+
+/* Reduce padding at deeper levels to prevent overflow and text wrapping problems */
+ul li ul li ul li ul ul {
+  padding-left: 15px !important;
+}
+
+ul li ul li ul li ul li ul li ul {
+  padding-left: 12px !important; 
+}
+
+/* Fix for list alignment - prevent centering of entire list */
+[data-content-area="true"] ul {
+  text-align: left !important;
+  margin-left: 0 !important; 
+}
+
+/* Ensure empty list items maintain their bullets */
+li:empty::before {
+  content: '\200B' !important;
+  display: inline !important;
+}
+
+/* Add these rules to ensure proper styling after Backspace operations */
+
+/* Style for paragraphs created from list items */
+[data-content-area="true"] > p {
+  margin: 0;
+  padding: 2px 0;
+  min-height: 1.5em;
+}
+
+/* Ensure proper spacing when list items are merged */
+li + li {
+  margin-top: 0;
+}
+
+/* Fix for cursor positioning in empty list items */
+li:empty {
+  min-height: 1.5em;
+}
+
+/* Ensure proper line height in list items with mixed content */
+li br {
+  line-height: inherit;
+}
+
+/* Base list styling */
+[data-content-area="true"] ul {
+  margin: 0;
+  padding-left: 40px !important;
+  list-style-position: outside !important;
+}
+
+/* Enforce bullet styles at various levels */
+[data-content-area="true"] li[style*="list-style-type: disc"] {
+  list-style-type: disc !important;
+}
+
+[data-content-area="true"] li[style*="list-style-type: circle"] {
+  list-style-type: circle !important;
+}
+
+[data-content-area="true"] li[style*="list-style-type: square"] {
+  list-style-type: square !important;
+}
+
+[data-content-area="true"] li[style*="list-style-type: '➤'"] {
+  list-style-type: '➤' !important;
+}
+
+[data-content-area="true"] li[style*="list-style-type: '-'"] {
+  list-style-type: '-' !important;
+}
+
+[data-content-area="true"] li[style*="list-style-type: '✦'"] {
+  list-style-type: '✦' !important;
+}
+
+/* Ensure lists don't break text in strange ways */
+li {
+  text-wrap: wrap !important;
+  white-space: normal !important;
+  word-break: normal !important;
+}
+
+/* Style for paragraphs created from list items */
+[contenteditable="true"] li > p {
+  margin: 0;
+  padding: 0;
+}
+
+/* Spacing between list items */
+[contenteditable="true"] li + li {
+  margin-top: 0.25em;
+}
+
+/* Style for empty list items to ensure cursor appears properly */
+li:empty {
+  min-height: 1.2em;
+}
+
+/* Styling for paragraphs that were converted from list items */
+.converted-list-item {
+  margin-top: 2px;
+  margin-bottom: 2px;
+  line-height: inherit;
+  position: relative;
 } 

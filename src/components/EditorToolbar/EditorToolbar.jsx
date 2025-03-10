@@ -42,6 +42,7 @@ import HyperlinkTooltip from '../Hyperlink/HyperlinkTooltip';
 import * as ReactDOM from 'react-dom/client';
 import TableButton from '../Table/TableButton';
 import { LineSpacingButton } from '../LineSpacing';
+import * as ListUtils from '../../utils/ListUtils';
 
 // Define printDocument function at the module level (outside the component)
 export const printDocument = () => {
@@ -2003,6 +2004,144 @@ const EditorToolbar = () => {
     return { top, left };
   };
 
+  const toggleBulletList = () => {
+    try {
+      const selection = window.getSelection();
+      if (!selection || selection.rangeCount === 0) return;
+      
+      // Save history
+      saveHistory(ActionTypes.COMPLETE);
+      
+      const range = selection.getRangeAt(0);
+      let container = range.commonAncestorContainer;
+      
+      // Navigate to the closest element if we're in a text node
+      if (container.nodeType === Node.TEXT_NODE) {
+        container = container.parentNode;
+      }
+      
+      // Find the main content area (explicitly avoid headers/footers)
+      let contentArea = null;
+      let current = container;
+      let inHeaderFooter = false;
+      
+      while (current && current.nodeType === Node.ELEMENT_NODE) {
+        if (current.hasAttribute('data-header') || current.hasAttribute('data-footer')) {
+          inHeaderFooter = true;
+          break;
+        }
+        if (current.hasAttribute('data-content-area')) {
+          contentArea = current;
+          break;
+        }
+        current = current.parentNode;
+      }
+      
+      if (inHeaderFooter) {
+        console.warn("Cannot apply bullet to header/footer");
+        return; // Don't operate on header/footer
+      }
+      
+      // If we didn't find the content area, look for it directly
+      if (!contentArea) {
+        contentArea = document.querySelector('[data-content-area="true"]');
+        if (!contentArea) {
+          console.error("No content area found");
+          return;
+        }
+      }
+      
+      // Find paragraph or list item that contains the selection
+      let paragraph = container;
+      while (paragraph && 
+             !['P', 'DIV', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'LI'].includes(paragraph.nodeName) && 
+             paragraph !== contentArea) {
+        paragraph = paragraph.parentNode;
+      }
+      
+      // If we didn't find a valid block element, create a new paragraph
+      if (!paragraph || paragraph === contentArea) {
+        paragraph = document.createElement('p');
+        
+        if (range.collapsed) {
+          paragraph.innerHTML = '<br>';
+          contentArea.appendChild(paragraph);
+        } else {
+          const fragment = range.extractContents();
+          paragraph.appendChild(fragment);
+          range.insertNode(paragraph);
+        }
+      }
+      
+      // Check if we're already in a list
+      const existingListItem = ListUtils.getListItem(paragraph);
+      
+      if (existingListItem) {
+        // Already in a list - convert back to paragraph
+        const parentList = existingListItem.parentNode;
+        const p = document.createElement('p');
+        p.innerHTML = existingListItem.innerHTML || '<br>';
+        
+        parentList.parentNode.insertBefore(p, parentList);
+        parentList.removeChild(existingListItem);
+        
+        // If the list is now empty, remove it
+        if (parentList.children.length === 0) {
+          parentList.parentNode.removeChild(parentList);
+        }
+        
+        // Place cursor in the paragraph
+        const newRange = document.createRange();
+        const textNode = p.firstChild;
+        if (textNode && textNode.nodeType === Node.TEXT_NODE) {
+          newRange.setStart(textNode, textNode.length);
+          newRange.setEnd(textNode, textNode.length);
+        } else {
+          newRange.selectNodeContents(p);
+          newRange.collapse(false);
+        }
+        selection.removeAllRanges();
+        selection.addRange(newRange);
+      } else {
+        // Convert paragraph to list
+        const list = document.createElement('ul');
+        const item = document.createElement('li');
+        
+        // Move the paragraph content to the list item
+        item.innerHTML = paragraph.innerHTML || '<br>';
+        list.appendChild(item);
+        
+        // Replace the paragraph with the list
+        paragraph.parentNode.replaceChild(list, paragraph);
+        
+        // Apply proper bullet styling
+        item.style.listStyleType = 'disc';
+        
+        // Place cursor in the list item
+        const newRange = document.createRange();
+        const textNode = item.firstChild;
+        if (textNode && textNode.nodeType === Node.TEXT_NODE) {
+          newRange.setStart(textNode, textNode.length);
+          newRange.setEnd(textNode, textNode.length);
+        } else {
+          newRange.selectNodeContents(item);
+          newRange.collapse(false);
+        }
+        selection.removeAllRanges();
+        selection.addRange(newRange);
+      }
+      
+      // Force update
+      const inputEvent = new Event('input', { bubbles: true });
+      contentArea.dispatchEvent(inputEvent);
+      
+      // Save history after changes
+      saveHistory(ActionTypes.COMPLETE);
+    } catch (error) {
+      console.error('Error toggling bullet list:', error);
+    }
+  };
+
   return (
     <>
       <Box sx={{
@@ -2323,6 +2462,16 @@ const EditorToolbar = () => {
               sx={{ padding: '4px' }}
             >
               <FormatIndentIncrease sx={{ fontSize: '18px' }} />
+            </IconButton>
+          </Tooltip>
+
+          <Tooltip title="Toggle Bullet List">
+            <IconButton 
+              size="small" 
+              onClick={toggleBulletList}
+              sx={{ padding: '4px' }}
+            >
+              <FormatListBulleted sx={{ fontSize: '18px' }} />
             </IconButton>
           </Tooltip>
         </Box>

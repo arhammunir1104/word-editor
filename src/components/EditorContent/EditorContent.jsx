@@ -46,8 +46,14 @@ import {
   isListItemEmpty,
   isAtStartOfNode,
   isAtEndOfNode,
-  findContentArea
+  findContentArea,
+  handleTabInList,
+  handleBackspaceInList,
+  handleListEnterKey
 } from '../../utils/ListUtils';
+import * as ListUtils from '../../utils/ListUtils';
+// Add this import at the top
+import '../../styles/listStyles.css';
 
 // A4 dimensions in pixels (96 DPI)
 const INCH_TO_PX = 96;
@@ -114,6 +120,9 @@ const MARGIN_PRESETS = {
     right: INCH_TO_PX * 1.5,
   },
 };
+
+// Add this import at the top of your file with other imports
+import { updateAllListStyles, getMainContentArea } from '../../utils/ListUtils';
 
 const EditorContent = () => {
   const [zoom, setZoom] = useState(100);
@@ -1018,75 +1027,72 @@ const EditorContent = () => {
 
   // Enhanced keyboard handler with proper Tab/Shift+Tab prioritization
   const handleKeyDown = (e, pageNumber) => {
-    // Tab & Shift+Tab highest priority handling
+    // Skip if in a header or footer
+    if (isHeaderActive || isFooterActive) {
+      return;
+    }
+
+    // Handle Tab in List - MUST come before the regular tab handling
     if (e.key === 'Tab') {
-      // Use all three stop methods to ensure no other handlers interfere
-      e.stopImmediatePropagation();
-      e.stopPropagation();
-      e.preventDefault();
+      const selection = window.getSelection();
+      if (selection && selection.rangeCount > 0) {
+        const range = selection.getRangeAt(0);
+        const listItem = getListItem(range.startContainer);
+        
+        if (listItem) {
+          handleTabInList(e, listItem, saveHistory, ActionTypes);
+          return;
+        }
+      }
+    }
+
+    // Handle Backspace in lists and paragraphs
+    if (e.key === 'Backspace') {
+      const node = findParagraphOrListItem(e.target);
       
-      // Use our enhanced Tab handler with Google Docs behavior
-      handleTabKey(e, pageNumber);
-      return;
-    }
-    
-    // Regular selection and container determination
-    const selection = window.getSelection();
-    if (!selection.rangeCount) return;
-    
-    const range = selection.getRangeAt(0);
-    let container = range.commonAncestorContainer;
-    
-    if (container.nodeType === Node.TEXT_NODE) {
-      container = container.parentNode;
-    }
-    
-    // List item special handling
-    const listItem = getListItem(container);
-    if (listItem) {
-      if (handleListSpecialKeys(e, listItem)) {
-        return;
+      if (node) {
+        if (node.nodeName === 'LI') {
+          // Handle backspace in list
+          if (handleBackspaceInList(e, node, saveHistory, ActionTypes)) {
+            return; // Event handled
+          }
+        } else if (node.nodeName === 'P') {
+          // Handle backspace in paragraph
+          if (handleBackspaceInParagraph(e, node, saveHistory, ActionTypes)) {
+            return; // Event handled
+          }
+        }
       }
     }
-    
-    // Handle table cells
-    const tableCell = findParentWithTag(container, 'TD');
-    if (tableCell && e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      return;
-    }
-    
-    // Handle Enter key for indentation preservation
-    if (e.key === 'Enter') {
-      if (handleEnterKey(e, pageNumber)) {
-        return;
+
+    // Handle Enter key in lists
+    if (e.key === 'Enter' && !e.shiftKey) {
+      const selection = window.getSelection();
+      if (selection && selection.rangeCount > 0) {
+        const range = selection.getRangeAt(0);
+        let container = range.commonAncestorContainer;
+        
+        // If we're in a text node, get its parent
+        if (container.nodeType === Node.TEXT_NODE) {
+          container = container.parentNode;
+        }
+        
+        // Check if we're in a list item
+        const listItem = ListUtils.getListItem(container);
+        if (listItem) {
+          // Use specialized enter handler for lists
+          const handled = ListUtils.handleListEnterKey(e, listItem,
+            () => saveHistory(ActionTypes.COMPLETE));
+          
+          if (handled) {
+            return;
+          }
+        }
       }
     }
-    
-    // Handle Backspace for indentation reduction
-    if (e.key === 'Backspace' && range.collapsed) {
-      if (handleBackspaceIndent(e, container)) {
-        return;
-      }
-    }
-    
-    // Handle keyboard shortcuts for indentation
-    if ((e.ctrlKey || e.metaKey) && e.key === ']') {
-      e.preventDefault();
-      handleIndent('increase', pageNumber);
-      return;
-    }
-    
-    if ((e.ctrlKey || e.metaKey) && e.key === '[') {
-      e.preventDefault();
-      handleIndent('decrease', pageNumber);
-      return;
-    }
-    
-    // Handle other special keys
-    if (handleSpecialKeys(e, pageNumber)) {
-      return;
-    }
+
+    // Other special keys handling
+    handleSpecialKeys(e, pageNumber);
   };
 
   // Handle header/footer changes
@@ -2690,6 +2696,223 @@ const EditorContent = () => {
       return false;
     }
   };
+
+  // Add these to your event registration useEffect
+
+  useEffect(() => {
+    // ... existing event listeners ...
+    
+    const handleGlobalKeyDown = (e) => {
+      // ... other key handlers ...
+      
+      // Handle Ctrl+Shift+8 for bullet list
+      if (e.ctrlKey && e.shiftKey && e.key === '*') {
+        e.preventDefault();
+        // Call your bullet list function from ListControls
+        // You might need to expose this function or create a custom event
+        const event = new CustomEvent('editor-bullet-list');
+        document.dispatchEvent(event);
+        return;
+      }
+      
+      // Handle Ctrl+Shift+7 for numbered list
+      if (e.ctrlKey && e.shiftKey && e.key === '&') {
+        e.preventDefault();
+        // Call your numbered list function from ListControls
+        const event = new CustomEvent('editor-numbered-list');
+        document.dispatchEvent(event);
+        return;
+      }
+    };
+    
+    document.addEventListener('keydown', handleGlobalKeyDown);
+    
+    return () => {
+      document.removeEventListener('keydown', handleGlobalKeyDown);
+      // ... other event cleanup ...
+    };
+  }, [/* your dependencies */]);
+
+  // Add this to your useEffect hook that runs on mount
+  useEffect(() => {
+    // ... your existing code ...
+
+    // Essential function to initialize and maintain bullet list styles
+    const initializeListStyles = () => {
+      const contentAreas = document.querySelectorAll('[data-content-area="true"]');
+      contentAreas.forEach(area => {
+        ListUtils.updateAllListStyles(area);
+      });
+      
+      // Also check and fix any incorrectly nested numbered lists inside bulleted lists
+      contentAreas.forEach(area => {
+        const bulletLists = area.querySelectorAll('ul');
+        bulletLists.forEach(ul => {
+          // Find any OL elements improperly nested in UL
+          const nestedOLs = ul.querySelectorAll('li > ol');
+          nestedOLs.forEach(ol => {
+            // Replace with a UL to maintain bullet formatting
+            const newUL = document.createElement('ul');
+            while (ol.firstChild) {
+              newUL.appendChild(ol.firstChild);
+            }
+            ol.parentNode.replaceChild(newUL, ol);
+          });
+        });
+        
+        // Run style update again after fixing structures
+        ListUtils.updateAllListStyles(area);
+      });
+    };
+    
+    // Run initially
+    initializeListStyles();
+    
+    // Set up an observer to maintain styles as the document changes
+    const observer = new MutationObserver(mutations => {
+      let shouldUpdateStyles = false;
+      
+      mutations.forEach(mutation => {
+        if (mutation.type === 'childList' || 
+            (mutation.type === 'attributes' && mutation.attributeName === 'style')) {
+          shouldUpdateStyles = true;
+        }
+      });
+      
+      if (shouldUpdateStyles) {
+        initializeListStyles();
+      }
+    });
+    
+    // Start observing
+    const contentAreas = document.querySelectorAll('[data-content-area="true"]');
+    contentAreas.forEach(area => {
+      observer.observe(area, { 
+        childList: true, 
+        subtree: true,
+        attributes: true,
+        attributeFilter: ['style']
+      });
+    });
+    
+    return () => {
+      observer.disconnect();
+    };
+  }, []);
+
+  // Fix for the Backspace functionality implementation
+  // Replace the entire useEffect block with this corrected version:
+
+  useEffect(() => {
+    // ... your existing initialization code ...
+    
+    // Enhanced initialization for bullet lists with proper Backspace support
+    const initializeListHandling = () => {
+      const contentAreas = document.querySelectorAll('[data-content-area="true"]');
+      
+      contentAreas.forEach(area => {
+        // Ensure all bullet styles are consistent
+        ListUtils.updateAllListStyles(area);
+        
+        // Fix any inconsistent list structures
+        const nestedOLsInUL = area.querySelectorAll('ul li > ol');
+        nestedOLsInUL.forEach(ol => {
+          const newUL = document.createElement('ul');
+          while (ol.firstChild) {
+            newUL.appendChild(ol.firstChild);
+          }
+          ol.parentNode.replaceChild(newUL, ol);
+        });
+        
+        // Update styles again after fixing structures
+        ListUtils.updateAllListStyles(area);
+      });
+      
+      // Set up observer to maintain consistency
+      const observer = new MutationObserver(mutations => {
+        let shouldUpdate = false;
+        
+        mutations.forEach(mutation => {
+          if (mutation.type === 'childList') {
+            // Check if the mutation involves lists
+            const hasListChanges = Array.from(mutation.addedNodes).some(node => 
+              node.nodeName === 'UL' || node.nodeName === 'OL' || 
+              (node.nodeType === Node.ELEMENT_NODE && 
+               (node.querySelector('ul') || node.querySelector('ol')))
+            );
+            
+            if (hasListChanges) {
+              shouldUpdate = true;
+            }
+          }
+        });
+        
+        if (shouldUpdate) {
+          setTimeout(initializeListHandling, 10);
+        }
+      });
+      
+      // Observe content areas
+      contentAreas.forEach(area => {
+        observer.observe(area, { 
+          childList: true, 
+          subtree: true 
+        });
+      });
+      
+      return observer; // Return the observer for cleanup
+    };
+    
+    // Run initialization
+    const observer = initializeListHandling();
+    
+    // Cleanup function
+    return () => {
+      if (observer) {
+        observer.disconnect();
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    const initializeListHandling = () => {
+      // Find all content areas
+      const contentAreas = document.querySelectorAll('[data-content-area="true"]');
+      
+      if (!contentAreas.length) return;
+      
+      // Apply initial list styles
+      contentAreas.forEach(area => {
+        updateAllListStyles(area);
+      });
+      
+      // Set up observer to maintain list styles
+      const observer = new MutationObserver(mutations => {
+        mutations.forEach(mutation => {
+          if (mutation.type === 'childList' || mutation.type === 'characterData') {
+            const contentArea = getMainContentArea(mutation.target);
+            if (contentArea) {
+              updateAllListStyles(contentArea);
+            }
+          }
+        });
+      });
+      
+      // Start observing each content area
+      contentAreas.forEach(area => {
+        observer.observe(area, {
+          childList: true,
+          subtree: true,
+          characterData: true
+        });
+      });
+      
+      // Clean up observer on unmount
+      return () => observer.disconnect();
+    };
+    
+    initializeListHandling();
+  }, []);
 
   return (
     <div className="min-h-screen bg-[#E5E5E5] p-8">

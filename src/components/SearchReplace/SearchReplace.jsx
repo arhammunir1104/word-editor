@@ -68,7 +68,7 @@ const SearchReplace = ({ anchorEl, onClose }) => {
           ranges.push(range);
           
           // Store match info
-          newMatches.push({
+        newMatches.push({ 
             range: range.cloneRange(), // Clone to ensure we have unique ranges
             pageNumber: parseInt(contentArea.getAttribute('data-page') || '1'),
             element: contentArea
@@ -158,14 +158,14 @@ const SearchReplace = ({ anchorEl, onClose }) => {
       currentHighlight.textContent = replaceText;
       
       // Trigger input event to update state
-      const inputEvent = new Event('input', { bubbles: true });
+    const inputEvent = new Event('input', { bubbles: true });
       currentHighlight.closest('[data-content-area="true"]').dispatchEvent(inputEvent);
-      
+
       // Save history after modification
       saveHistory(ActionTypes.COMPLETE);
-      
+
       // Refresh the search to update matches
-      handleSearch();
+    handleSearch();
     }
   };
 
@@ -187,7 +187,7 @@ const SearchReplace = ({ anchorEl, onClose }) => {
       match.range.insertNode(document.createTextNode(replaceText));
       
       // Trigger input event to update state for this element
-      const inputEvent = new Event('input', { bubbles: true });
+        const inputEvent = new Event('input', { bubbles: true });
       match.element.dispatchEvent(inputEvent);
     }
     

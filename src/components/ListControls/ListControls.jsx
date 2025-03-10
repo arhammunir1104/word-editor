@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Box, IconButton, Tooltip, Menu, MenuItem, ListItemIcon, ListItemText } from '@mui/material';
 import { 
   FormatListBulleted, 
@@ -32,28 +32,48 @@ const ListControls = () => {
     setNumberAnchorEl(null);
   };
 
-  // Apply bullet list
+  // Completely revise the applyBulletList function
   const applyBulletList = () => {
-    // Save history before making changes
-    saveHistory(ActionTypes.COMPLETE);
-
-    // Get current selection
+    try {
     const selection = window.getSelection();
     if (!selection || selection.rangeCount === 0) return;
+      
+      // Save history state before making changes
+      saveHistory(ActionTypes.COMPLETE);
 
     const range = selection.getRangeAt(0);
-    
-    // Find the editable content area
-    const contentArea = ListUtils.findContentArea(range.startContainer);
-    if (!contentArea) return;
-
-    // Get the container of the selection
-    let container = range.commonAncestorContainer;
+      let container = range.commonAncestorContainer;
+      
+      // Navigate to the closest element if we're in a text node
     if (container.nodeType === Node.TEXT_NODE) {
       container = container.parentNode;
     }
 
-    // Find the closest paragraph or list item
+      // IMPORTANT: Make sure we're not in a header or footer
+      let current = container;
+      let inHeaderFooter = false;
+      
+      while (current && current.nodeType === Node.ELEMENT_NODE) {
+        if (current.hasAttribute('data-header') || current.hasAttribute('data-footer')) {
+          inHeaderFooter = true;
+          break;
+        }
+        current = current.parentNode;
+      }
+      
+      if (inHeaderFooter) {
+        console.warn("Cannot apply bullet to header/footer");
+        return; // Don't operate on header/footer
+      }
+      
+      // Find the main content area (explicitly look for this attribute)
+      const contentArea = document.querySelector('[data-content-area="true"]');
+      if (!contentArea) {
+        console.error("No content area found for bullet list");
+        return;
+      }
+      
+      // Find paragraph or list item that contains the selection
     let paragraph = container;
     while (paragraph && 
            !['P', 'DIV', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'LI'].includes(paragraph.nodeName) && 
@@ -61,109 +81,152 @@ const ListControls = () => {
       paragraph = paragraph.parentNode;
     }
 
-    // If we didn't find a valid block element, create a new paragraph
+      // If we didn't find a valid paragraph, create one in the content area
     if (!paragraph || paragraph === contentArea) {
-      // Create a new paragraph with the selected content
-      const newParagraph = document.createElement('p');
-      if (!range.collapsed) {
-        // If there's a selection, extract it and put it in the paragraph
-        const fragment = range.extractContents();
-        newParagraph.appendChild(fragment);
-        range.insertNode(newParagraph);
+        paragraph = document.createElement('p');
+        
+        if (range.collapsed) {
+          paragraph.innerHTML = '<br>';
+          contentArea.appendChild(paragraph);
       } else {
-        // If no selection, just create empty paragraph
-        newParagraph.innerHTML = '<br>';
-        contentArea.appendChild(newParagraph);
-      }
-      paragraph = newParagraph;
+          const extractedContent = range.extractContents();
+          paragraph.appendChild(extractedContent);
+          range.insertNode(paragraph);
+        }
     }
 
     // Check if we're already in a list
     const existingListItem = ListUtils.getListItem(paragraph);
     
     if (existingListItem) {
-      // Already in a list item
+        // If already in a list item, and it's a bullet list, convert to paragraph
       const parentList = existingListItem.parentNode;
-      
-      if (parentList.nodeName === 'UL') {
-        // Already in a bullet list - convert to paragraph
-        const newPara = document.createElement('p');
-        newPara.innerHTML = existingListItem.innerHTML;
-        
-        // Replace list item with paragraph
-        if (parentList.childNodes.length === 1) {
-          // If this is the only item, replace the entire list
-          parentList.parentNode.replaceChild(newPara, parentList);
-        } else {
-          // Otherwise, just replace this list item
-          parentList.parentNode.insertBefore(newPara, parentList);
-          existingListItem.remove();
-        }
-        
-        // Set selection to the new paragraph
+        if (parentList.nodeName === 'UL') {
+          // Convert from bullet list to paragraph
+          const p = document.createElement('p');
+          p.innerHTML = existingListItem.innerHTML || '<br>';
+          
+          parentList.parentNode.insertBefore(p, parentList);
+          parentList.removeChild(existingListItem);
+          
+          // If the list is now empty, remove it
+          if (parentList.children.length === 0) {
+            parentList.parentNode.removeChild(parentList);
+          }
+          
+          // Place cursor in the paragraph
         const newRange = document.createRange();
-        newRange.selectNodeContents(newPara);
+          const textNode = p.firstChild;
+          if (textNode && textNode.nodeType === Node.TEXT_NODE) {
+            newRange.setStart(textNode, textNode.length);
+            newRange.setEnd(textNode, textNode.length);
+          } else {
+            newRange.selectNodeContents(p);
         newRange.collapse(false);
+          }
         selection.removeAllRanges();
         selection.addRange(newRange);
       } else if (parentList.nodeName === 'OL') {
-        // In a numbered list - convert to bullet list
-        const newList = document.createElement('ul');
+          // Convert from numbered to bullet list
+          const bulletList = document.createElement('ul');
+          const items = Array.from(parentList.children);
+          
+          // Find the root list to replace
+          const rootList = ListUtils.findRootList(existingListItem);
+          if (!rootList) return;
+          
+          // Create new bullet list with same structure
+          const cloneListStructure = (oldList, newList, isRoot = false) => {
+            Array.from(oldList.children).forEach(oldItem => {
+              if (oldItem.nodeName !== 'LI') return;
+              
         const newItem = document.createElement('li');
-        newItem.innerHTML = existingListItem.innerHTML;
+              newItem.innerHTML = oldItem.innerHTML || '<br>';
+              newList.appendChild(newItem);
+              
+              // Handle nested lists
+              Array.from(oldItem.children).forEach(child => {
+                if (child.nodeName === 'UL' || child.nodeName === 'OL') {
+                  const newSubList = document.createElement('ul');
+                  newItem.appendChild(newSubList);
+                  cloneListStructure(child, newSubList);
+                }
+              });
+            });
+            
+            // Update styles based on level
+            ListUtils.updateListStyles(newList);
+          };
+          
+          cloneListStructure(rootList, bulletList, true);
+          
+          // Replace the old list with the new one
+          rootList.parentNode.replaceChild(bulletList, rootList);
+          
+          // Update styles throughout
+          ListUtils.updateAllListStyles(contentArea);
+          
+          // Set focus to the appropriate item
+          const firstItem = bulletList.querySelector('li');
+          if (firstItem) {
+            const newRange = document.createRange();
+            const textNode = firstItem.firstChild;
+            if (textNode && textNode.nodeType === Node.TEXT_NODE) {
+              newRange.setStart(textNode, textNode.length);
+              newRange.setEnd(textNode, textNode.length);
+            } else {
+              newRange.selectNodeContents(firstItem);
+              newRange.collapse(false);
+            }
+            selection.removeAllRanges();
+            selection.addRange(newRange);
+          }
+        }
+      } else {
+        // Convert paragraph to bullet list
+        const list = document.createElement('ul');
+        const item = document.createElement('li');
         
-        // Set appropriate bullet style
-        const level = ListUtils.getListLevel(existingListItem);
-        newItem.style.listStyleType = ListUtils.getBulletStyleForLevel(level);
+        // Move the paragraph content to the list item
+        item.innerHTML = paragraph.innerHTML || '<br>';
+        list.appendChild(item);
         
-        newList.appendChild(newItem);
-        
-        // Replace the list item
-        if (parentList.childNodes.length === 1) {
-          // If this is the only item, replace the entire list
-          parentList.parentNode.replaceChild(newList, parentList);
+        // CRITICAL: Ensure we're inserting into the content area if paragraph isn't in the DOM
+        if (!paragraph.parentNode) {
+          contentArea.appendChild(list);
         } else {
-          // Otherwise, just replace this list item
-          parentList.parentNode.insertBefore(newList, parentList);
-          existingListItem.remove();
+          // Replace the paragraph with the list
+          paragraph.parentNode.replaceChild(list, paragraph);
         }
         
-        // Set selection to the new list item
+        // Apply proper bullet styling
+        item.style.listStyleType = ListUtils.getBulletStyleForLevel(1);
+        
+        // Place cursor in the list item - CRITICAL for allowing typing
         const newRange = document.createRange();
-        newRange.selectNodeContents(newItem);
+        const textNode = item.firstChild;
+        if (textNode && textNode.nodeType === Node.TEXT_NODE) {
+          newRange.setStart(textNode, textNode.length);
+          newRange.setEnd(textNode, textNode.length);
+        } else {
+          newRange.selectNodeContents(item);
         newRange.collapse(false);
+        }
         selection.removeAllRanges();
         selection.addRange(newRange);
       }
-    } else {
-      // Not in a list - create a new bullet list
-      const newList = document.createElement('ul');
-      const newItem = document.createElement('li');
       
-      // Copy content from the paragraph/block element
-      newItem.innerHTML = paragraph.innerHTML;
+      // Force update - VERY IMPORTANT
+      if (contentArea) {
+        const inputEvent = new Event('input', { bubbles: true });
+        contentArea.dispatchEvent(inputEvent);
+      }
       
-      // Set appropriate bullet style
-      newItem.style.listStyleType = ListUtils.getBulletStyleForLevel(1);
-      
-      newList.appendChild(newItem);
-      
-      // Replace the paragraph with the new list
-      paragraph.parentNode.replaceChild(newList, paragraph);
-      
-      // Set selection to the new list item
-      const newRange = document.createRange();
-      newRange.selectNodeContents(newItem);
-      newRange.collapse(false);
-      selection.removeAllRanges();
-      selection.addRange(newRange);
+      // Save history again after the change
+      saveHistory(ActionTypes.COMPLETE);
+    } catch (error) {
+      console.error('Error applying bullet list:', error);
     }
-
-    // Trigger input event
-    contentArea.dispatchEvent(new Event('input', { bubbles: true }));
-    
-    // Save history after changes
-    setTimeout(() => saveHistory(ActionTypes.COMPLETE), 10);
   };
 
   // Apply numbered list (similar structure to bulletList)
@@ -463,6 +526,24 @@ const ListControls = () => {
     // Close the menu
     handleCloseMenus();
   };
+
+  useEffect(() => {
+    const handleBulletListEvent = () => {
+      applyBulletList();
+    };
+    
+    const handleNumberedListEvent = () => {
+      applyNumberedList();
+    };
+    
+    document.addEventListener('editor-bullet-list', handleBulletListEvent);
+    document.addEventListener('editor-numbered-list', handleNumberedListEvent);
+    
+    return () => {
+      document.removeEventListener('editor-bullet-list', handleBulletListEvent);
+      document.removeEventListener('editor-numbered-list', handleNumberedListEvent);
+    };
+  }, []);
 
   return (
     <Box sx={{ display: 'flex', alignItems: 'center', gap: '1px' }} className="list-controls">
