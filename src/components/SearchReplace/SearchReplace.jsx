@@ -8,12 +8,17 @@ const SearchReplace = ({ anchorEl, onClose }) => {
   const [replaceText, setReplaceText] = useState('');
   const [currentMatch, setCurrentMatch] = useState(0);
   const [matches, setMatches] = useState([]);
+  const [matchRanges, setMatchRanges] = useState([]);
   
   const { pageContents, pages } = useEditor();
   const { saveHistory, ActionTypes } = useEditorHistory();
 
   // Remove any existing highlights
   const clearHighlights = () => {
+    // First clear any existing selection
+    window.getSelection().removeAllRanges();
+    
+    // Then remove any highlight spans that might exist
     const highlights = document.querySelectorAll('.search-highlight');
     highlights.forEach(highlight => {
       const text = highlight.textContent;
@@ -25,153 +30,229 @@ const SearchReplace = ({ anchorEl, onClose }) => {
     if (!searchText) return;
     
     clearHighlights();
-    const newMatches = [];
     
     // Get all content areas
-    const pages = document.querySelectorAll('[data-content-area="true"]');
+    const contentAreas = document.querySelectorAll('[data-content-area="true"]');
+    const newMatches = [];
+    const ranges = [];
     
-    pages.forEach(page => {
-      const pageNumber = parseInt(page.getAttribute('data-page'));
-      const content = page.textContent;  // Changed from innerHTML to textContent
-      let startIndex = 0;
+    contentAreas.forEach(contentArea => {
+      // Use TreeWalker to find only text nodes (this preserves formatting)
+      const walker = document.createTreeWalker(
+        contentArea,
+        NodeFilter.SHOW_TEXT,
+        null,
+        false
+      );
       
-      while (true) {
-        const index = content.toLowerCase().indexOf(searchText.toLowerCase(), startIndex);
-        if (index === -1) break;
+      let textNode;
+      while (textNode = walker.nextNode()) {
+        // Skip text nodes in system elements like comment markers
+        if (textNode.parentNode.classList && 
+            (textNode.parentNode.classList.contains('comment-highlight') || 
+             textNode.parentNode.classList.contains('search-highlight'))) {
+          continue;
+        }
         
-        newMatches.push({ 
-          pageNumber,
-          element: page,
-          index: index,
-          originalContent: content
-        });
-        startIndex = index + searchText.length;
+        const text = textNode.nodeValue;
+        const searchLower = searchText.toLowerCase();
+        let startPos = text.toLowerCase().indexOf(searchLower);
+        
+        while (startPos !== -1) {
+          // Create a DOM Range for this match
+          const range = document.createRange();
+          range.setStart(textNode, startPos);
+          range.setEnd(textNode, startPos + searchText.length);
+          
+          // Store the range for later
+          ranges.push(range);
+          
+          // Store match info
+          newMatches.push({
+            range: range.cloneRange(), // Clone to ensure we have unique ranges
+            pageNumber: parseInt(contentArea.getAttribute('data-page') || '1'),
+            element: contentArea
+          });
+          
+          // Look for next occurrence in this same text node
+          startPos = text.toLowerCase().indexOf(searchLower, startPos + 1);
+        }
       }
     });
 
     setMatches(newMatches);
+    setMatchRanges(ranges);
     
     if (newMatches.length > 0) {
       setCurrentMatch(0);
-      highlightAllMatches(newMatches);  // Changed to highlight all matches
+      highlightAllMatches(newMatches); // Changed to highlight all matches
+      // Also scroll to first match
+      scrollToMatch(newMatches[0]);
     }
   };
 
-  // New function to highlight all matches
-  const highlightAllMatches = (matches) => {
+  // Add new function to highlight all matches
+  const highlightAllMatches = (matchesToHighlight) => {
+    // Clear any previous selection first
+    window.getSelection().removeAllRanges();
+    
+    // Clear existing highlights
     clearHighlights();
     
-    matches.forEach(match => {
-      const content = match.originalContent;
-      let html = match.element.innerHTML;
+    // Create highlight spans for all matches
+    matchesToHighlight.forEach(match => {
+      const range = match.range;
       
-      // Create a temporary div to handle HTML content
-      const tempDiv = document.createElement('div');
-      tempDiv.innerHTML = html;
-      const textContent = tempDiv.textContent;
+      // Create a highlight span
+      const highlightSpan = document.createElement('span');
+      highlightSpan.className = 'search-highlight';
+      highlightSpan.style.backgroundColor = 'yellow';
+      highlightSpan.style.color = 'black';
       
-      // Find the correct position in HTML
-      let currentIndex = 0;
-      let htmlIndex = 0;
-      
-      while (currentIndex < match.index) {
-        if (textContent[currentIndex] === html[htmlIndex]) {
-          currentIndex++;
-        }
-        htmlIndex++;
+      try {
+        // Extract the content and wrap it in our highlight span
+        const content = range.extractContents();
+        highlightSpan.appendChild(content);
+        range.insertNode(highlightSpan);
+      } catch (error) {
+        console.error('Error highlighting match:', error);
       }
-      
-      const before = html.slice(0, htmlIndex);
-      const after = html.slice(htmlIndex + searchText.length);
-      
-      match.element.innerHTML = `${before}<span class="search-highlight" style="background-color: yellow !important; color: black !important;">${searchText}</span>${after}`;
     });
+  };
 
-    // Scroll to current match
-    const currentHighlight = matches[currentMatch]?.element.querySelector('.search-highlight');
-    if (currentHighlight) {
-      currentHighlight.scrollIntoView({
-        behavior: 'smooth',
-        block: 'center'
-      });
+  // Scroll to a specific match
+  const scrollToMatch = (match) => {
+    if (!match) return;
+    
+    // Find the highlight element from this match
+    let highlightElem;
+    try {
+      // Try to find by range position
+      const container = match.range.startContainer.parentNode;
+      highlightElem = container.querySelector('.search-highlight') || container;
+    } catch (e) {
+      // Fallback
+      highlightElem = document.querySelector('.search-highlight');
+    }
+    
+    // Scroll to the highlight
+    if (highlightElem && highlightElem.scrollIntoView) {
+      highlightElem.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }
   };
 
   const handleReplace = () => {
-    if (currentMatch === -1 || !matches.length) return;
+    if (matches.length === 0 || currentMatch < 0 || currentMatch >= matches.length) return;
     
-    const match = matches[currentMatch];
-    if (!match || !match.element) return;
-
-    // Capture state before replacement
-    saveHistory(ActionTypes.TEXT, match.element.getAttribute('data-area-type') || 'content');
-
-    const content = match.originalContent;
-    const newContent = 
-      content.slice(0, match.index) + 
-      replaceText + 
-      content.slice(match.index + searchText.length);
-
-    // Update the content in the editor
-    match.element.innerHTML = newContent;
-
-    // Trigger the onInput event to update the state
-    const inputEvent = new Event('input', { bubbles: true });
-    match.element.dispatchEvent(inputEvent);
-
-    // Update matches after replacement
-    handleSearch();
+    // Save history before modifying content
+    saveHistory(ActionTypes.COMPLETE);
+    
+    // Get all highlights
+    const highlights = document.querySelectorAll('.search-highlight');
+    
+    // Check if we have a valid current highlight
+    if (highlights[currentMatch]) {
+      const currentHighlight = highlights[currentMatch];
+      
+      // Replace the text in the highlight
+      currentHighlight.textContent = replaceText;
+      
+      // Trigger input event to update state
+      const inputEvent = new Event('input', { bubbles: true });
+      currentHighlight.closest('[data-content-area="true"]').dispatchEvent(inputEvent);
+      
+      // Save history after modification
+      saveHistory(ActionTypes.COMPLETE);
+      
+      // Refresh the search to update matches
+      handleSearch();
+    }
   };
 
   const handleReplaceAll = () => {
-    if (!matches.length) return;
-
-    // Capture state before replacement
-    saveHistory(ActionTypes.TEXT, 'content');
-
-    // Get all content areas
-    const pages = document.querySelectorAll('[data-content-area="true"]');
-    let changesApplied = false;
+    if (matches.length === 0) return;
     
-    pages.forEach(page => {
-      let content = page.textContent;
-      const searchRegex = new RegExp(searchText, 'gi');
-      const newContent = content.replace(searchRegex, replaceText);
+    // Save history before batch modifications
+    saveHistory(ActionTypes.COMPLETE);
+    
+    // Clone the matches array since we'll be modifying the DOM
+    const matchesToReplace = [...matches];
+    
+    // Replace all matches in reverse order (to avoid position shifts)
+    for (let i = matchesToReplace.length - 1; i >= 0; i--) {
+      const match = matchesToReplace[i];
       
-      if (content !== newContent) {
-        changesApplied = true;
-        page.textContent = newContent;
-        
-        // Trigger input event to update state
-        const inputEvent = new Event('input', { bubbles: true });
-        page.dispatchEvent(inputEvent);
-      }
-    });
-
-    // If any changes were made, save to history
-    if (changesApplied) {
-      saveHistory(ActionTypes.TEXT, 'content');
+      // Replace the content in the range
+      match.range.deleteContents();
+      match.range.insertNode(document.createTextNode(replaceText));
+      
+      // Trigger input event to update state for this element
+      const inputEvent = new Event('input', { bubbles: true });
+      match.element.dispatchEvent(inputEvent);
     }
-
-    // Clear matches and highlights
+    
+    // Save history after all modifications
+    saveHistory(ActionTypes.COMPLETE);
+    
+    // Clear matches and reset
     setMatches([]);
-    setCurrentMatch(-1);
+    setMatchRanges([]);
+    setCurrentMatch(0);
     clearHighlights();
   };
 
   const handleNext = () => {
     if (currentMatch < matches.length - 1) {
-      setCurrentMatch(currentMatch + 1);
-      highlightAllMatches(matches.slice(currentMatch + 1));
+      const nextMatch = currentMatch + 1;
+      setCurrentMatch(nextMatch);
+      
+      // Get all highlights
+      const highlights = document.querySelectorAll('.search-highlight');
+      
+      // Remove current highlight indicator
+      highlights.forEach(h => {
+        h.style.backgroundColor = 'yellow';
+        h.style.outline = 'none';
+      });
+      
+      // Add current highlight indicator to the selected match
+      if (highlights[nextMatch]) {
+        highlights[nextMatch].style.backgroundColor = '#FFA500'; // Orange for current match
+        highlights[nextMatch].style.outline = '2px solid #FF4500'; // Red outline
+        highlights[nextMatch].scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
     }
   };
 
   const handlePrevious = () => {
     if (currentMatch > 0) {
-      setCurrentMatch(currentMatch - 1);
-      highlightAllMatches(matches.slice(0, currentMatch));
+      const prevMatch = currentMatch - 1;
+      setCurrentMatch(prevMatch);
+      
+      // Get all highlights
+      const highlights = document.querySelectorAll('.search-highlight');
+      
+      // Remove current highlight indicator
+      highlights.forEach(h => {
+        h.style.backgroundColor = 'yellow';
+        h.style.outline = 'none';
+      });
+      
+      // Add current highlight indicator to the selected match
+      if (highlights[prevMatch]) {
+        highlights[prevMatch].style.backgroundColor = '#FFA500'; // Orange for current match
+        highlights[prevMatch].style.outline = '2px solid #FF4500'; // Red outline
+        highlights[prevMatch].scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
     }
   };
+
+  // Cleanup when closing
+  React.useEffect(() => {
+    return () => {
+      clearHighlights();
+    };
+  }, []);
 
   // Update the CSS style in useEffect
   React.useEffect(() => {
@@ -193,7 +274,10 @@ const SearchReplace = ({ anchorEl, onClose }) => {
     <Popover
       open={Boolean(anchorEl)}
       anchorEl={anchorEl}
-      onClose={onClose}
+      onClose={() => {
+        clearHighlights();
+        onClose();
+      }}
       anchorOrigin={{
         vertical: 'bottom',
         horizontal: 'left',
